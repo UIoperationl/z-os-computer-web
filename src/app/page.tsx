@@ -46,6 +46,7 @@ export default function Home() {
   const [currentDir, setCurrentDir] = useState('')
   const [fileContent, setFileContent] = useState<string | null>(null)
   const [selectedFile, setSelectedFile] = useState<string | null>(null)
+  const [selectedFilePath, setSelectedFilePath] = useState<string>('')
 
   const [settings, setSettings] = useState<Settings>({ apiKey: '', baseUrl: '', model: '' })
   const [showSettings, setShowSettings] = useState(false)
@@ -125,8 +126,8 @@ export default function Home() {
     try {
       const r = await fetch(`/api/files?dir=${encodeURIComponent(dir)}`)
       const j = await r.json()
-      if (j.type === 'directory') { setFiles(j.files); setCurrentDir(j.relativePath || ''); setFileContent(null); setSelectedFile(null) }
-      else if (j.type === 'file') { setFileContent(j.content); setSelectedFile(j.name) }
+      if (j.type === 'directory') { setFiles(j.files); setCurrentDir(j.relativePath || ''); setFileContent(null); setSelectedFile(null); setSelectedFilePath('') }
+      else if (j.type === 'file') { setFileContent(j.content); setSelectedFile(j.name); setSelectedFilePath(j.path.replace('/home/z/my-project/', '')) }
     } catch {}
   }
   useEffect(() => { loadFiles('') }, [])
@@ -350,15 +351,23 @@ export default function Home() {
       <div style={{ flex: 1, overflowY: 'auto', padding: '6px' }}>
         {fileContent !== null ? (
           <div style={{ padding: '6px' }}>
-            <div style={{ marginBottom: '6px', color: '#ffaa00', fontSize: '0.75rem', fontFamily: 'monospace' }}>📄 {selectedFile}</div>
+            <div style={{ marginBottom: '6px', color: '#ffaa00', fontSize: '0.75rem', fontFamily: 'monospace', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>📄 {selectedFile}</span>
+              <a href={`/api/download?file=${encodeURIComponent(selectedFilePath)}`} download={selectedFile || 'file'} style={{ background: '#1a3a5a', color: '#5ac8ff', border: '1px solid #2a4a5a', padding: '2px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.68rem', cursor: 'pointer', textDecoration: 'none' }}>⬇ Download</a>
+            </div>
             <pre style={{ color: '#ddd', fontSize: '0.72rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '180px', overflow: 'auto' }}>{fileContent}</pre>
-            <button onClick={() => { setFileContent(null); setSelectedFile(null); loadFiles(currentDir) }} style={{ marginTop: '6px', background: '#1a1a2a', color: '#00ff88', border: '1px solid #2a2a3a', padding: '3px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>⟵ back</button>
+            <button onClick={() => { setFileContent(null); setSelectedFile(null); setSelectedFilePath(''); loadFiles(currentDir) }} style={{ marginTop: '6px', background: '#1a1a2a', color: '#00ff88', border: '1px solid #2a2a3a', padding: '3px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>⟵ back</button>
           </div>
         ) : files.map(f => (
-          <div key={f.path} onClick={() => f.isDir ? loadFiles(f.path) : loadFiles(f.path)} style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', borderRadius: '3px', fontSize: '0.74rem', fontFamily: 'monospace' }} onMouseOver={e => e.currentTarget.style.background = '#1a2a1a'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
-            <span style={{ color: f.isDir ? '#ffaa00' : '#5ac8ff' }}>{f.isDir ? '📁' : '📄'}</span>
-            <span style={{ color: f.isDir ? '#ffaa00' : '#ddd', flex: 1 }}>{f.name}</span>
+          <div key={f.path} style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.74rem', fontFamily: 'monospace', borderRadius: '3px' }} onMouseOver={e => e.currentTarget.style.background = '#1a2a1a'} onMouseOut={e => e.currentTarget.style.background = 'transparent'}>
+            <span onClick={() => f.isDir ? loadFiles(f.path) : loadFiles(f.path)} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+              <span style={{ color: f.isDir ? '#ffaa00' : '#5ac8ff' }}>{f.isDir ? '📁' : '📄'}</span>
+              <span style={{ color: f.isDir ? '#ffaa00' : '#ddd' }}>{f.name}</span>
+            </span>
             <span style={{ color: '#666', fontSize: '0.65rem' }}>{f.isDir ? '' : formatSize(f.size)}</span>
+            {!f.isDir && (
+              <a href={`/api/download?file=${encodeURIComponent(f.path)}`} download={f.name} onClick={e => e.stopPropagation()} style={{ background: '#1a3a5a', color: '#5ac8ff', border: '1px solid #2a4a5a', padding: '1px 6px', borderRadius: '2px', fontFamily: 'monospace', fontSize: '0.62rem', cursor: 'pointer', textDecoration: 'none' }}>⬇</a>
+            )}
           </div>
         ))}
       </div>

@@ -1,22 +1,27 @@
 // /api/ai-exec - runs shell commands for the AI
-// Uses async spawn with timeout (NOT execSync which blocked event loop and crashed Next.js)
+// Increased timeout to 60s, better error reporting, less aggressive blocking
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { cmd, timeoutMs = 8000 } = body as { cmd: string; timeoutMs?: number }
+  const { cmd, timeoutMs = 60000 } = body as { cmd: string; timeoutMs?: number }
 
   if (!cmd || typeof cmd !== 'string') {
     return NextResponse.json({ error: 'cmd required' }, { status: 400 })
   }
 
-  // Block obviously dangerous commands
-  const dangerous = ['rm -rf /', 'mkfs', 'shutdown', 'reboot', ':(){:|:&};:']
+  // Only block truly catastrophic commands
+  const catastrophic = ['rm -rf /', 'rm -rf /*', 'mkfs', 'shutdown', 'reboot', 'halt', 'dd if=/dev/zero of=/dev/']
   const lowerCmd = cmd.toLowerCase()
-  for (const d of dangerous) {
+  for (const d of catastrophic) {
     if (lowerCmd.includes(d)) {
-      return NextResponse.json({ error: `blocked: ${d}` }, { status: 403 })
+      return NextResponse.json({ 
+        ok: false, 
+        error: `Blocked catastrophic command: ${d}`,
+        stdout: '',
+        stderr: `Blocked: ${d}`,
+      }, { status: 403 })
     }
   }
 
@@ -32,7 +37,7 @@ export async function POST(req: NextRequest) {
     
     const timer = setTimeout(() => {
       timedOut = true
-      proc.kill('SIGKILL')
+      try { proc.kill('SIGKILL') } catch {}
     }, timeoutMs)
     
     proc.stdout.on('data', (d) => { stdout += d.toString() })
@@ -41,11 +46,12 @@ export async function POST(req: NextRequest) {
     proc.on('close', (code) => {
       clearTimeout(timer)
       resolve(NextResponse.json({
-        ok: true,
-        stdout: stdout.slice(0, 10000), // cap output
-        stderr: stderr.slice(0, 5000),
+        ok: code === 0,
+        stdout: stdout.slice(0, 20000), // increased cap
+        stderr: stderr.slice(0, 10000),
         exitCode: code,
         timedOut,
+        cmd,
       }))
     })
     
@@ -54,6 +60,9 @@ export async function POST(req: NextRequest) {
       resolve(NextResponse.json({
         ok: false,
         error: e.message,
+        stdout: '',
+        stderr: e.message,
+        cmd,
       }, { status: 500 }))
     })
   })
