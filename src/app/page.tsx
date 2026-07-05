@@ -61,6 +61,8 @@ export default function Home() {
 
   const [settings, setSettings] = useState<Settings>({ apiKey: '', baseUrl: '', model: '' })
   const [showSettings, setShowSettings] = useState(false)
+  const [availableModels, setAvailableModels] = useState<string[]>([])
+  const [loadingModels, setLoadingModels] = useState(false)
 
   const [windows, setWindows] = useState<WindowState[]>([
     { id: 'chat', title: '◈ AI Chat — Mirror/Z', x: 80, y: 60, w: 540, h: 500, z: 10, minimized: false },
@@ -198,6 +200,27 @@ export default function Home() {
     setChatMessages([])
   }
 
+  const fetchModels = async () => {
+    if (!settings.baseUrl || !settings.apiKey) return
+    setLoadingModels(true)
+    setAvailableModels([])
+    try {
+      const r = await fetch('/api/models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: settings.baseUrl, apiKey: settings.apiKey }),
+      })
+      const j = await r.json()
+      if (j.ok && j.models) {
+        setAvailableModels(j.models.map((m: any) => m.id))
+        if (j.models.length > 0 && !settings.model) {
+          setSettings({ ...settings, model: j.models[0].id })
+        }
+      }
+    } catch {}
+    setLoadingModels(false)
+  }
+
   const focusWindow = (id: string) => {
     setWindows((prev) => {
       const maxZ = Math.max(...prev.map((w) => w.z))
@@ -322,11 +345,23 @@ export default function Home() {
       </div>
       {showSettings && (
         <div style={{ padding: '8px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-          <input type="text" value={settings.baseUrl} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })} placeholder="API Base URL (e.g. https://api.openai.com/v1)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          <div style={{ display: 'flex', gap: '4px' }}>
+            <input type="text" value={settings.baseUrl} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })} placeholder="API Base URL (e.g. https://api.openai.com/v1)" style={{ flex: 1, background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+            <button onClick={fetchModels} disabled={loadingModels || !settings.baseUrl || !settings.apiKey} style={{ background: loadingModels ? '#333' : '#1a3a5a', color: loadingModels ? '#666' : '#5ac8ff', border: '1px solid #2a4a5a', padding: '4px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: loadingModels ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap' }}>
+              {loadingModels ? '...' : 'Fetch models'}
+            </button>
+          </div>
           <input type="password" value={settings.apiKey} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="API Key (sk-...)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
-          <input type="text" value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="Model (e.g. gpt-4o-mini)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          {availableModels.length > 0 ? (
+            <select value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })} style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }}>
+              {availableModels.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          ) : (
+            <input type="text" value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="Model name (or fetch models above)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          )}
           <div style={{ fontSize: '0.65rem', color: '#666' }}>
-            {settings.apiKey && settings.baseUrl ? `✓ Using your ${settings.model || 'default'} via ${settings.baseUrl}` : 'Using default z-ai model. Add your keys to use any OpenAI-compatible API.'}
+            {settings.apiKey && settings.baseUrl ? `✓ Using ${settings.model || 'default'} via ${settings.baseUrl}` : 'Using default z-ai model. Add your keys to use any OpenAI-compatible API.'}
+            {availableModels.length > 0 && ` (${availableModels.length} models available)`}
           </div>
         </div>
       )}
