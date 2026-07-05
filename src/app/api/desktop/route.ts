@@ -20,15 +20,16 @@ function ensureInit() {
   if (STATE.initialized) return
   STATE.initialized = true
 
-  // Clear heartbeat file
   try { fs.writeFileSync(HEARTBEAT_FILE, '') } catch {}
 
-  // Spawn bash shell
-  const shell = spawn('bash', ['--noprofile', '--norc', '-i'], {
+  // Spawn bash WITHOUT -i to avoid echo doubling. Use --noprofile --norc.
+  // We manually manage the prompt in the UI.
+  const shell = spawn('bash', ['--noprofile', '--norc'], {
     env: {
       ...process.env,
-      TERM: 'xterm-256color',
-      PS1: 'z@ai-sandbox:\\w$ ',
+      TERM: 'dumb',  // disable terminal control sequences
+      PS1: '$ ',     // minimal prompt
+      PS2: '> ',
     },
     cwd: '/home/z/my-project',
   })
@@ -53,13 +54,13 @@ function ensureInit() {
 
   STATE.stdoutBuffer =
     '╔══════════════════════════════════════════════════════════╗\n' +
-    '║  ZAI SANDBOX — REMOTE DESKTOP (terminal mode)            ║\n' +
-    '║  You are using the AI\'s computer.                       ║\n' +
-    '║  Bash commands run in real time on the sandbox.          ║\n' +
+    '║  ZAI SANDBOX — REAL BASH SHELL                           ║\n' +
+    '║  You are using the AI\'s actual computer.                 ║\n' +
+    '║  Commands run on the real sandbox filesystem.            ║\n' +
     '║  Heartbeat pulses every 2s proving the AI is alive.      ║\n' +
     '╚══════════════════════════════════════════════════════════╝\n\n' +
     'Try: ls, pwd, whoami, date, cat scripts/desktop_heartbeat.log\n' +
-    'Type "exit" to close your session.\n\n'
+    'The shell is real. The files are real. The heartbeat is real.\n\n'
 
   setInterval(() => {
     STATE.heartbeatCount++

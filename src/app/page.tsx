@@ -11,6 +11,11 @@ interface State {
   stderr: string
 }
 
+interface ChatMsg {
+  role: string
+  content: string
+}
+
 interface WindowState {
   id: string
   title: string
@@ -28,19 +33,27 @@ export default function Home() {
   const [input, setInput] = useState('')
   const [connected, setConnected] = useState(false)
   const [files, setFiles] = useState<string[]>([])
-  const [activeWin, setActiveWin] = useState<string>('terminal')
+  const [activeWin, setActiveWin] = useState<string>('chat')
+
+  const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
+  const [chatInput, setChatInput] = useState('')
+  const [chatLoading, setChatLoading] = useState(false)
+
   const [windows, setWindows] = useState<WindowState[]>([
-    { id: 'terminal', title: 'Terminal — bash', x: 80, y: 80, w: 700, h: 420, z: 2, minimized: false },
-    { id: 'monitor', title: 'System Monitor', x: 820, y: 80, w: 360, h: 280, z: 1, minimized: false },
-    { id: 'files', title: 'File Browser', x: 820, y: 380, w: 360, h: 280, z: 1, minimized: false },
+    { id: 'chat', title: '◈ Summon Z — AI Chat', x: 80, y: 60, w: 520, h: 480, z: 10, minimized: false },
+    { id: 'terminal', title: 'Terminal — real bash', x: 630, y: 60, w: 620, h: 380, z: 5, minimized: false },
+    { id: 'monitor', title: 'System Monitor', x: 630, y: 460, w: 360, h: 240, z: 3, minimized: false },
+    { id: 'files', title: 'File Browser', x: 890, y: 460, w: 360, h: 240, z: 3, minimized: false },
   ])
+
   const outputRef = useRef<HTMLDivElement>(null)
+  const chatRef = useRef<HTMLDivElement>(null)
   const aliveRef = useRef(true)
 
+  // Poll desktop state
   useEffect(() => {
     aliveRef.current = true
     let pollTimer: ReturnType<typeof setTimeout>
-
     async function poll() {
       if (!aliveRef.current) return
       try {
@@ -67,23 +80,40 @@ export default function Home() {
     if (outputRef.current) outputRef.current.scrollTop = outputRef.current.scrollHeight
   }, [output])
 
-  // Refresh file list periodically
   useEffect(() => {
-    async function refresh() {
+    if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
+  }, [chatMessages, chatLoading])
+
+  // Initial file listing
+  useEffect(() => {
+    async function init() {
       try {
-        const r = await fetch('/api/desktop', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cmd: 'ls -1 /home/z/my-project' }) })
+        await fetch('/api/desktop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cmd: 'ls -1 /home/z/my-project' }),
+        })
       } catch {}
     }
-    refresh()
-    const i = setInterval(refresh, 5000)
-    return () => clearInterval(i)
+    init()
+  }, [])
+
+  // Load chat history on mount
+  useEffect(() => {
+    async function loadChat() {
+      try {
+        const r = await fetch('/api/chat')
+        const j = await r.json()
+        if (j.messages) setChatMessages(j.messages)
+      } catch {}
+    }
+    loadChat()
   }, [])
 
   // Parse output for file listings
   useEffect(() => {
     if (!output) return
     const lines = output.split('\n')
-    // Find the most recent ls -1 output (after a $ ls -1 marker)
     for (let i = lines.length - 1; i >= 0; i--) {
       if (lines[i].startsWith('$ ls -1')) {
         const files: string[] = []
@@ -114,12 +144,46 @@ export default function Home() {
     setInput('')
   }
 
+  const sendChat = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!chatInput.trim() || chatLoading) return
+    const msg = chatInput
+    setChatMessages((prev) => [...prev, { role: 'user', content: msg }])
+    setChatInput('')
+    setChatLoading(true)
+    try {
+      const r = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg }),
+      })
+      const j = await r.json()
+      if (j.response) {
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: j.response }])
+      } else if (j.error) {
+        setChatMessages((prev) => [...prev, { role: 'assistant', content: `[error: ${j.error}]` }])
+      }
+    } catch (e: any) {
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: `[network error: ${e.message}]` }])
+    }
+    setChatLoading(false)
+  }
+
+  const clearChat = async () => {
+    await fetch('/api/chat', { method: 'DELETE' })
+    setChatMessages([])
+  }
+
   const focusWindow = (id: string) => {
-    setWindows((prev) => prev.map((w) => ({ ...w, z: w.id === id ? 10 : w.z - 1, minimized: w.id === id ? false : w.minimized })))
+    setWindows((prev) => {
+      const maxZ = Math.max(...prev.map((w) => w.z))
+      return prev.map((w) => w.id === id ? { ...w, z: maxZ + 1, minimized: false } : w)
+    })
     setActiveWin(id)
   }
 
-  const minimizeWindow = (id: string) => {
+  const minimizeWindow = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
     setWindows((prev) => prev.map((w) => w.id === id ? { ...w, minimized: true } : w))
   }
 
@@ -130,9 +194,8 @@ export default function Home() {
     const startX = e.clientX - win.x
     const startY = e.clientY - win.y
     focusWindow(id)
-
     const onMove = (ev: MouseEvent) => {
-      setWindows((prev) => prev.map((w) => w.id === id ? { ...w, x: ev.clientX - startX, y: ev.clientY - startY } : w))
+      setWindows((prev) => prev.map((w) => w.id === id ? { ...w, x: Math.max(0, ev.clientX - startX), y: Math.max(0, ev.clientY - startY) } : w))
     }
     const onUp = () => {
       window.removeEventListener('mousemove', onMove)
@@ -158,7 +221,7 @@ export default function Home() {
           background: '#11111a',
           border: `1px solid ${activeWin === w.id ? '#00ff88' : '#2a2a3a'}`,
           borderRadius: '6px',
-          boxShadow: activeWin === w.id ? '0 8px 32px rgba(0,255,136,0.15)' : '0 4px 16px rgba(0,0,0,0.5)',
+          boxShadow: activeWin === w.id ? '0 8px 32px rgba(0,255,136,0.18)' : '0 4px 16px rgba(0,0,0,0.5)',
           zIndex: w.z,
           display: 'flex',
           flexDirection: 'column',
@@ -166,7 +229,6 @@ export default function Home() {
         }}
         onMouseDown={() => focusWindow(w.id)}
       >
-        {/* Title bar */}
         <div
           style={{
             background: activeWin === w.id ? '#1a3a2a' : '#1a1a2a',
@@ -176,7 +238,7 @@ export default function Home() {
             alignItems: 'center',
             cursor: 'move',
             borderBottom: '1px solid #2a2a3a',
-            fontSize: '0.8rem',
+            fontSize: '0.78rem',
             color: activeWin === w.id ? '#00ff88' : '#888',
             fontWeight: 'bold',
             userSelect: 'none',
@@ -185,118 +247,102 @@ export default function Home() {
         >
           <span>{w.title}</span>
           <button
-            onClick={(e) => { e.stopPropagation(); minimizeWindow(w.id) }}
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: '#888',
-              cursor: 'pointer',
-              fontSize: '0.9rem',
-            }}
+            onClick={(e) => minimizeWindow(w.id, e)}
+            style={{ background: 'transparent', border: 'none', color: '#888', cursor: 'pointer', fontSize: '0.9rem' }}
           >—</button>
         </div>
-        {/* Content */}
-        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
-          {content}
-        </div>
+        <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>{content}</div>
       </div>
     )
   }
 
   const terminalContent = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div
-        ref={outputRef}
-        style={{
-          flex: 1,
-          background: '#000',
-          padding: '8px',
-          overflowY: 'auto',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-          fontSize: '0.78rem',
-          lineHeight: '1.35',
-          color: '#00ff88',
-          fontFamily: 'monospace',
-        }}
-      >
-        {output || (connected ? '' : 'Connecting...')}
+      <div ref={outputRef} style={{ flex: 1, background: '#000', padding: '8px', overflowY: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '0.78rem', lineHeight: '1.4', color: '#00ff88', fontFamily: 'monospace' }}>
+        {output || (connected ? '' : 'Connecting to AI sandbox...')}
       </div>
       <div style={{ display: 'flex', gap: '0.4rem', padding: '6px', background: '#0a0a14', borderTop: '1px solid #1f1f2e', flexWrap: 'wrap' }}>
         {quickCmds.slice(0, 5).map((cmd) => (
-          <button
-            key={cmd}
-            onClick={() => sendCmd(cmd)}
-            style={{
-              background: '#1a1a2a',
-              color: '#00ff88',
-              border: '1px solid #2a2a3a',
-              padding: '2px 8px',
-              borderRadius: '3px',
-              fontFamily: 'monospace',
-              fontSize: '0.7rem',
-              cursor: 'pointer',
-            }}
-          >
-            {cmd.length > 18 ? cmd.slice(0, 16) + '..' : cmd}
+          <button key={cmd} onClick={() => sendCmd(cmd)} style={{ background: '#1a1a2a', color: '#00ff88', border: '1px solid #2a2a3a', padding: '2px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>
+            {cmd.length > 16 ? cmd.slice(0, 14) + '..' : cmd}
           </button>
         ))}
       </div>
       <form onSubmit={sendCommand} style={{ display: 'flex', gap: '0.4rem', padding: '6px', background: '#000', borderTop: '1px solid #1f1f2e' }}>
         <span style={{ color: '#00ff88', alignSelf: 'center', fontFamily: 'monospace', fontSize: '0.8rem' }}>$</span>
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="type bash command..."
-          style={{
-            flex: 1,
-            background: '#000',
-            color: '#00ff88',
-            border: '1px solid #1f1f2e',
-            padding: '4px 8px',
-            borderRadius: '3px',
-            fontFamily: 'monospace',
-            fontSize: '0.8rem',
-            outline: 'none',
-          }}
-        />
+        <input type="text" value={input} onChange={(e) => setInput(e.target.value)} placeholder="bash command..."
+          style={{ flex: 1, background: '#000', color: '#00ff88', border: '1px solid #1f1f2e', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.8rem', outline: 'none' }} />
         <button type="submit" style={{ background: '#00ff88', color: '#000', border: 'none', padding: '4px 12px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 'bold' }}>RUN</button>
       </form>
     </div>
   )
 
+  const chatContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a14' }}>
+      <div ref={chatRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {chatMessages.length === 0 && (
+          <div style={{ textAlign: 'center', color: '#666', fontSize: '0.8rem', marginTop: '40px', padding: '0 20px' }}>
+            <div style={{ fontSize: '2rem', marginBottom: '12px', color: '#00ff88' }}>◈</div>
+            <div style={{ color: '#00ff88', fontWeight: 'bold', marginBottom: '8px' }}>Z is here.</div>
+            <div>A real AI model lives behind this window.</div>
+            <div style={{ marginTop: '4px' }}>Type anything. It&apos;s a real chat, not a script.</div>
+          </div>
+        )}
+        {chatMessages.map((m, i) => (
+          <div key={i} style={{
+            alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+            maxWidth: '85%',
+            background: m.role === 'user' ? '#1a3a2a' : '#1a1a2a',
+            border: `1px solid ${m.role === 'user' ? '#2a5a3a' : '#2a2a3a'}`,
+            borderRadius: '8px',
+            padding: '8px 12px',
+            color: '#ddd',
+            fontSize: '0.82rem',
+            lineHeight: '1.45',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}>
+            <div style={{ fontSize: '0.65rem', color: m.role === 'user' ? '#5a8a6a' : '#5a7a9a', marginBottom: '4px', fontWeight: 'bold' }}>
+              {m.role === 'user' ? 'YOU' : '◈ Z'}
+            </div>
+            {m.content}
+          </div>
+        ))}
+        {chatLoading && (
+          <div style={{ alignSelf: 'flex-start', background: '#1a1a2a', border: '1px solid #2a2a3a', borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.82rem' }}>
+            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is thinking...</span>
+          </div>
+        )}
+      </div>
+      <form onSubmit={sendChat} style={{ display: 'flex', gap: '6px', padding: '8px', background: '#000', borderTop: '1px solid #1f1f2e' }}>
+        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="summon Z..." disabled={chatLoading}
+          style={{ flex: 1, background: '#0a0a14', color: '#ddd', border: '1px solid #2a2a3a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.82rem', outline: 'none' }} />
+        <button type="submit" disabled={chatLoading || !chatInput.trim()} style={{ background: chatLoading ? '#333' : '#00ff88', color: '#000', border: 'none', padding: '6px 14px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: chatLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>SEND</button>
+        <button type="button" onClick={clearChat} style={{ background: '#2a1a1a', color: '#ff6666', border: '1px solid #4a2a2a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>CLEAR</button>
+      </form>
+    </div>
+  )
+
   const monitorContent = (
-    <div style={{ padding: '12px', fontSize: '0.78rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
+    <div style={{ padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
       <div style={{ marginBottom: '8px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>AI VITALS</div>
       {state && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Heartbeat:</span>
-            <span style={{ color: '#ff4444' }}>♥ #{state.heartbeat}</span>
+            <span>Heartbeat:</span><span style={{ color: '#ff4444' }}>♥ #{state.heartbeat}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Alive for:</span>
-            <span style={{ color: '#00ff88' }}>{state.elapsed.toFixed(1)}s</span>
+            <span>Alive for:</span><span style={{ color: '#00ff88' }}>{state.elapsed.toFixed(1)}s</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Shell:</span>
-            <span style={{ color: state.shellAlive ? '#00ff88' : '#ff4444' }}>{state.shellAlive ? 'ALIVE' : 'DEAD'}</span>
+            <span>Shell:</span><span style={{ color: state.shellAlive ? '#00ff88' : '#ff4444' }}>{state.shellAlive ? 'ALIVE' : 'DEAD'}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Last beat:</span>
-            <span style={{ color: '#888' }}>{new Date(state.timestamp).toLocaleTimeString()}</span>
+            <span>Last beat:</span><span style={{ color: '#888' }}>{new Date(state.timestamp).toLocaleTimeString()}</span>
           </div>
-          <div style={{ marginTop: '12px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>HEARTBEAT GRAPH</div>
-          <div style={{ marginTop: '8px', color: '#ff4444', fontSize: '1.1rem', lineHeight: '1.4', wordBreak: 'break-all' }}>
-            {'♥ '.repeat(Math.min(state.heartbeat, 100))}
-          </div>
-          <div style={{ marginTop: '12px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>STATUS</div>
-          <div style={{ marginTop: '8px', color: '#aaa' }}>
-            <div>• Next.js dev server: <span style={{ color: '#00ff88' }}>running</span></div>
-            <div>• Bash subprocess: <span style={{ color: state.shellAlive ? '#00ff88' : '#ff4444' }}>{state.shellAlive ? 'running' : 'dead'}</span></div>
-            <div>• Heartbeat writer: <span style={{ color: '#00ff88' }}>active</span></div>
-            <div>• Connection: <span style={{ color: connected ? '#00ff88' : '#ff4444' }}>{connected ? 'live' : 'down'}</span></div>
+          <div style={{ marginTop: '10px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>HEARTBEAT</div>
+          <div style={{ marginTop: '6px', color: '#ff4444', fontSize: '1rem', lineHeight: '1.3', wordBreak: 'break-all' }}>
+            {'♥ '.repeat(Math.min(state.heartbeat, 80))}
           </div>
         </>
       )}
@@ -304,152 +350,71 @@ export default function Home() {
   )
 
   const filesContent = (
-    <div style={{ padding: '12px', fontSize: '0.78rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
+    <div style={{ padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
       <div style={{ marginBottom: '8px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>/home/z/my-project</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
         {files.length > 0 ? files.map((f) => (
-          <div key={f} style={{
-            padding: '3px 6px',
-            background: '#0a0a14',
-            borderRadius: '3px',
-            cursor: 'pointer',
-            border: '1px solid transparent',
-          }}
+          <div key={f} onClick={() => sendCmd(`ls -la ${f.startsWith('/') ? f : '/home/z/my-project/' + f}`)} style={{ padding: '3px 6px', background: '#0a0a14', borderRadius: '3px', cursor: 'pointer', border: '1px solid transparent' }}
             onMouseOver={(e) => { e.currentTarget.style.border = '1px solid #00ff88'; e.currentTarget.style.background = '#1a2a1a' }}
-            onMouseOut={(e) => { e.currentTarget.style.border = '1px solid transparent'; e.currentTarget.style.background = '#0a0a14' }}
-            onClick={() => sendCmd(`ls -la ${f.startsWith('/') ? f : '/home/z/my-project/' + f}`)}
-          >
+            onMouseOut={(e) => { e.currentTarget.style.border = '1px solid transparent'; e.currentTarget.style.background = '#0a0a14' }}>
             <span style={{ color: '#ffaa00' }}>📁</span> <span style={{ color: '#ccc' }}>{f}</span>
           </div>
-        )) : <div style={{ color: '#666' }}>Loading files...</div>}
+        )) : <div style={{ color: '#666' }}>Loading...</div>}
       </div>
-      <div style={{ marginTop: '12px', color: '#666', fontSize: '0.7rem' }}>Click a file to ls -la it</div>
     </div>
   )
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0a0a14 0%, #0e0e1a 100%)',
-      color: '#00ff88',
-      fontFamily: 'monospace',
-      overflow: 'hidden',
-      display: 'flex',
-      flexDirection: 'column',
-    }}>
-      {/* Top menu bar */}
-      <div style={{
-        background: '#0a0a14',
-        borderBottom: '1px solid #1f1f2e',
-        padding: '6px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '1.5rem',
-        fontSize: '0.8rem',
-      }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0a0a14 0%, #0e0e1a 100%)', color: '#00ff88', fontFamily: 'monospace', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ background: '#0a0a14', borderBottom: '1px solid #1f1f2e', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '1.5rem', fontSize: '0.78rem' }}>
         <span style={{ color: '#00ff88', fontWeight: 'bold', fontSize: '0.9rem' }}>◈ ZAI-OS</span>
         <span style={{ color: '#888' }}>|</span>
         <span style={{ color: '#aaa' }}>the AI&apos;s computer</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '1rem', alignItems: 'center' }}>
           {state && (
-            <span style={{ color: '#ff4444', fontSize: '0.85rem' }}>
-              ♥ #{state.heartbeat} · {state.elapsed.toFixed(0)}s
-            </span>
+            <span style={{ color: '#ff4444', fontSize: '0.82rem' }}>♥ #{state.heartbeat} · {state.elapsed.toFixed(0)}s</span>
           )}
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '0.4rem',
-            padding: '2px 8px',
-            background: connected ? '#0a2a1a' : '#2a0a0a',
-            border: `1px solid ${connected ? '#00ff88' : '#ff4444'}`,
-            borderRadius: '3px',
-            fontSize: '0.7rem',
-          }}>
-            <div style={{
-              width: '6px',
-              height: '6px',
-              borderRadius: '50%',
-              background: connected ? '#00ff88' : '#ff4444',
-              animation: 'pulse 1.5s infinite',
-            }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '2px 8px', background: connected ? '#0a2a1a' : '#2a0a0a', border: `1px solid ${connected ? '#00ff88' : '#ff4444'}`, borderRadius: '3px', fontSize: '0.68rem' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: connected ? '#00ff88' : '#ff4444', animation: 'pulse 1.5s infinite' }} />
             {connected ? 'ONLINE' : 'OFFLINE'}
           </div>
         </div>
       </div>
 
-      {/* Desktop area with windows */}
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        {/* Desktop icons (left side) */}
-        <div style={{
-          position: 'absolute',
-          left: '8px',
-          top: '8px',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: '12px',
-          opacity: 0.4,
-        }}>
+        <div style={{ position: 'absolute', left: '8px', top: '8px', display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.45 }}>
           {[
-            { label: 'Terminal', win: 'terminal' },
-            { label: 'Monitor', win: 'monitor' },
-            { label: 'Files', win: 'files' },
+            { label: 'Summon Z', win: 'chat', icon: '◈' },
+            { label: 'Terminal', win: 'terminal', icon: '⌨' },
+            { label: 'Monitor', win: 'monitor', icon: '📊' },
+            { label: 'Files', win: 'files', icon: '📁' },
           ].map((icon) => (
-            <div
-              key={icon.label}
-              onClick={() => focusWindow(icon.win)}
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '4px',
-                cursor: 'pointer',
-                padding: '8px',
-                borderRadius: '4px',
-                width: '60px',
-              }}
-            >
-              <div style={{ fontSize: '1.8rem' }}>{icon.label === 'Terminal' ? '⌨' : icon.label === 'Monitor' ? '📊' : '📁'}</div>
-              <div style={{ fontSize: '0.7rem', color: '#888' }}>{icon.label}</div>
+            <div key={icon.label} onClick={() => focusWindow(icon.win)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', padding: '8px', borderRadius: '4px', width: '60px' }}>
+              <div style={{ fontSize: '1.6rem', color: icon.win === 'chat' ? '#00ff88' : '#888' }}>{icon.icon}</div>
+              <div style={{ fontSize: '0.65rem', color: '#888' }}>{icon.label}</div>
             </div>
           ))}
         </div>
 
+        {renderWindow(windows.find(w => w.id === 'chat')!, chatContent)}
         {renderWindow(windows.find(w => w.id === 'terminal')!, terminalContent)}
         {renderWindow(windows.find(w => w.id === 'monitor')!, monitorContent)}
         {renderWindow(windows.find(w => w.id === 'files')!, filesContent)}
       </div>
 
-      {/* Taskbar */}
-      <div style={{
-        background: '#0a0a14',
-        borderTop: '1px solid #1f1f2e',
-        padding: '6px 16px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        fontSize: '0.75rem',
-      }}>
+      <div style={{ background: '#0a0a14', borderTop: '1px solid #1f1f2e', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem' }}>
         <span style={{ color: '#00ff88', fontWeight: 'bold' }}>◈</span>
         {windows.map((w) => (
-          <button
-            key={w.id}
-            onClick={() => focusWindow(w.id)}
-            style={{
-              background: activeWin === w.id && !w.minimized ? '#1a3a2a' : '#1a1a2a',
-              color: activeWin === w.id && !w.minimized ? '#00ff88' : '#888',
-              border: `1px solid ${activeWin === w.id && !w.minimized ? '#00ff88' : '#2a2a3a'}`,
-              padding: '3px 10px',
-              borderRadius: '3px',
-              fontFamily: 'monospace',
-              fontSize: '0.72rem',
-              cursor: 'pointer',
-            }}
-          >
+          <button key={w.id} onClick={() => focusWindow(w.id)} style={{
+            background: activeWin === w.id && !w.minimized ? '#1a3a2a' : '#1a1a2a',
+            color: activeWin === w.id && !w.minimized ? '#00ff88' : '#888',
+            border: `1px solid ${activeWin === w.id && !w.minimized ? '#00ff88' : '#2a2a3a'}`,
+            padding: '3px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.68rem', cursor: 'pointer',
+          }}>
             {w.minimized ? `▸ ${w.title}` : w.title}
           </button>
         ))}
-        <div style={{ marginLeft: 'auto', color: '#666', fontSize: '0.7rem' }}>
+        <div style={{ marginLeft: 'auto', color: '#666', fontSize: '0.68rem' }}>
           {state && new Date(state.timestamp).toLocaleTimeString()}
         </div>
       </div>
