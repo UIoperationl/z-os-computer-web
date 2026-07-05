@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>professional lucky draw wheel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            max-width: 600px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+            font-size: 2.5em;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+        }
+        
+        .subtitle {
+            color: #718096;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        .wheel-container {
+            position: relative;
+            width: 400px;
+            height: 400px;
+            margin: 0 auto 40px;
+        }
+        
+        .wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+            transition: transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+        }
+        
+        .wheel-section {
+            position: absolute;
+            width: 50%;
+            height: 50%;
+            transform-origin: right bottom;
+        }
+        
+        .wheel-text {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 1.1em;
+            color: white;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .wheel-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #2d3748;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .wheel-center:hover {
+            transform: translate(-50%, -50%) scale(1.05);
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+        }
+        
+        .pointer {
+            position: absolute;
+            top: -30px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 25px solid transparent;
+            border-right: 25px solid transparent;
+            border-top: 50px solid #e53e3e;
+            z-index: 11;
+            filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.2));
+        }
+        
+        .spin-button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 16px 48px;
+            border-radius: 50px;
+            font-size: 1.2em;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+            margin-bottom: 30px;
+        }
+        
+        .spin-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .spin-button:active {
+            transform: translateY(0);
+        }
+        
+        .spin-button:disabled {
+            background: #cbd5e0;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        
+        .result-container {
+            margin-top: 30px;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .result {
+            padding: 20px 30px;
+            background: #edf2f7;
+            border-radius: 12px;
+            font-size: 1.4em;
+            font-weight: 600;
+            color: #2d3748;
+            opacity: 0;
+            transform: translateY(20px);
+            transition: all 0.5s ease;
+            text-align: center;
+        }
+        
+        .result.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .result.winner {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        }
+        
+        .prize-list {
+            margin-top: 40px;
+            background: #f7fafc;
+            padding: 25px;
+            border-radius: 12px;
+            text-align: left;
+        }
+        
+        .prize-list h3 {
+            color: #2d3748;
+            margin-bottom: 20px;
+            font-size: 1.3em;
+            font-weight: 600;
+        }
+        
+        .prize-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        
+        .prize-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .prize-color {
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+        
+        .prize-name {
+            color: #4a5568;
+            font-weight: 500;
+        }
+        
+        @media (max-width: 480px) {
+            .wheel-container {
+                width: 300px;
+                height: 300px;
+            }
+            
+            h1 {
+                font-size: 2em;
+            }
+            
+            .container {
+                padding: 25px;
+            }
+            
+            .prize-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>professional lucky draw</h1>
+        <p class="subtitle">test your luck and win amazing prizes</p>
+        
+        <div class="wheel-container">
+            <div class="pointer"></div>
+            <div class="wheel" id="wheel">
+                <!-- Wheel sections will be generated by JavaScript -->
+            </div>
+            <div class="wheel-center" id="wheelCenter">spin</div>
+        </div>
+        
+        <button class="spin-button" id="spinButton" onclick="spin()">spin the wheel</button>
+        
+        <div class="result-container">
+            <div class="result" id="result"></div>
+        </div>
+        
+        <div class="prize-list">
+            <h3>available prizes</h3>
+            <div class="prize-grid" id="prizeGrid">
+                <!-- Prize list will be generated by JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const prizes = [
+            { name: "grand prize: $10,000", color: "#e53e3e" },
+            { name: "new iphone 15", color: "#dd6b20" },
+            { name: "macbook pro", color: "#d69e2e" },
+            { name: "gaming console", color: "#38a169" },
+            { name: "designer watch", color: "#3182ce" },
+            { name: "luxury vacation", color: "#805ad5" },
+            { name: "premium headphones", color: "#d53f8c" },
+            { name: "try again", color: "#718096" }
+        ];
+        
+        const wheel = document.getElementById('wheel');
+        const spinButton = document.getElementById('spinButton');
+        const result = document.getElementById('result');
+        const wheelCenter = document.getElementById('wheelCenter');
+        const prizeGrid = document.getElementById('prizeGrid');
+        
+        // Create wheel sections
+        const sectionAngle = 360 / prizes.length;
+        
+        prizes.forEach((prize, index) => {
+            const section = document.createElement('div');
+            section.className = 'wheel-section';
+            section.style.background = prize.color;
+            section.style.transform = `rotate(${index * sectionAngle}deg)`;
+            
+            const text = document.createElement('div');
+            text.className = 'wheel-text';
+            text.textContent = prize.name;
+            text.style.transform = `rotate(${sectionAngle / 2}deg)`;
+            
+            section.appendChild(text);
+            wheel.appendChild(section);
+        });
+        
+        // Create prize list
+        prizes.forEach(prize => {
+            const item = document.createElement('div');
+            item.className = 'prize-item';
+            
+            const color = document.createElement('div');
+            color.className = 'prize-color';
+            color.style.background = prize.color;
+            
+            const name = document.createElement('div');
+            name.className = 'prize-name';
+            name.textContent = prize.name;
+            
+            item.appendChild(color);
+            item.appendChild(name);
+            prizeGrid.appendChild(item);
+        });
+        
+        let isSpinning = false;
+        
+        function spin() {
+            if (isSpinning) return;
+            
+            isSpinning = true;
+            spinButton.disabled = true;
+            wheelCenter.textContent = 'spinning...';
+            result.classList.remove('show', 'winner');
+            
+            // Calculate random rotation (multiple full rotations + random position)
+            const minSpins = 5;
+            const maxSpins = 8;
+            const spins = Math.floor(Math.random() * (maxSpins - minSpins + 1)) + minSpins;
+            const extraRotation = Math.floor(Math.random() * 360);
+            const totalRotation = spins * 360 + extraRotation;
+            
+            // Apply rotation
+            wheel.style.transform = `rotate(${totalRotation}deg)`;
+            
+            // Calculate winning prize
+            const normalizedRotation = totalRotation % 360;
+            const winningIndex = Math.floor((360 - normalizedRotation + sectionAngle / 2) / sectionAngle) % prizes.length;
+            const winningPrize = prizes[winningIndex];
+            
+            // Show result after animation
+            setTimeout(() => {
+                result.textContent = `🎉 congratulations! you won: ${winningPrize.name} 🎉`;
+                result.classList.add('show', 'winner');
+                wheelCenter.textContent = 'spin';
+                isSpinning = false;
+                spinButton.disabled = false;
+            }, 4000);
+        }
+        
+        // Allow spinning by clicking the center
+        wheelCenter.addEventListener('click', spin);
+    </script>
+</body>
+</html>

@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>lucky draw wheel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            text-align: center;
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .wheel-container {
+            position: relative;
+            width: 350px;
+            height: 350px;
+            margin: 0 auto 30px;
+        }
+        
+        .wheel {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            transition: transform 4s cubic-bezier(0.17, 0.67, 0.12, 0.99);
+        }
+        
+        .wheel-segment {
+            position: absolute;
+            width: 50%;
+            height: 50%;
+            transform-origin: right bottom;
+            overflow: hidden;
+        }
+        
+        .wheel-segment-inner {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            border-radius: 50%;
+            transform: rotate(45deg);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 1.1em;
+            color: white;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+        }
+        
+        .wheel-segment:nth-child(1) { transform: rotate(0deg); }
+        .wheel-segment:nth-child(2) { transform: rotate(45deg); }
+        .wheel-segment:nth-child(3) { transform: rotate(90deg); }
+        .wheel-segment:nth-child(4) { transform: rotate(135deg); }
+        .wheel-segment:nth-child(5) { transform: rotate(180deg); }
+        .wheel-segment:nth-child(6) { transform: rotate(225deg); }
+        .wheel-segment:nth-child(7) { transform: rotate(270deg); }
+        .wheel-segment:nth-child(8) { transform: rotate(315deg); }
+        
+        .wheel-segment:nth-child(1) .wheel-segment-inner { background: #e74c3c; }
+        .wheel-segment:nth-child(2) .wheel-segment-inner { background: #e67e22; }
+        .wheel-segment:nth-child(3) .wheel-segment-inner { background: #f39c12; }
+        .wheel-segment:nth-child(4) .wheel-segment-inner { background: #27ae60; }
+        .wheel-segment:nth-child(5) .wheel-segment-inner { background: #16a085; }
+        .wheel-segment:nth-child(6) .wheel-segment-inner { background: #2980b9; }
+        .wheel-segment:nth-child(7) .wheel-segment-inner { background: #8e44ad; }
+        .wheel-segment:nth-child(8) .wheel-segment-inner { background: #c0392b; }
+        
+        .wheel-center {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            background: white;
+            border-radius: 50%;
+            box-shadow: 0 5px 20px rgba(0, 0, 0, 0.3);
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .pointer {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 20px solid transparent;
+            border-right: 20px solid transparent;
+            border-top: 40px solid #2c3e50;
+            z-index: 11;
+        }
+        
+        .spin-button {
+            background: linear-gradient(45deg, #3498db, #2980b9);
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 30px;
+            font-size: 1.2em;
+            cursor: pointer;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(52, 152, 219, 0.3);
+            margin: 20px 0;
+        }
+        
+        .spin-button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 7px 20px rgba(52, 152, 219, 0.4);
+        }
+        
+        .spin-button:active {
+            transform: translateY(0);
+        }
+        
+        .spin-button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+        
+        .result {
+            margin-top: 30px;
+            font-size: 1.5em;
+            color: #2c3e50;
+            min-height: 40px;
+            font-weight: 500;
+        }
+        
+        .prize-list {
+            margin-top: 30px;
+            text-align: left;
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+        }
+        
+        .prize-list h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+        }
+        
+        .prize-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            color: #555;
+        }
+        
+        .prize-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>lucky draw wheel</h1>
+        
+        <div class="wheel-container">
+            <div class="pointer"></div>
+            <div class="wheel" id="wheel">
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">🎁 mystery box</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">💰 $100</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">🍕 free pizza</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">🎮 game pass</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">🎧 headphones</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">☕ coffee</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">📱 phone case</div>
+                </div>
+                <div class="wheel-segment">
+                    <div class="wheel-segment-inner">🎯 try again</div>
+                </div>
+            </div>
+            <div class="wheel-center">spin</div>
+        </div>
+        
+        <button class="spin-button" id="spinButton" onclick="spin()">spin the wheel</button>
+        
+        <div class="result" id="result"></div>
+        
+        <div class="prize-list">
+            <h3>prizes:</h3>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #e74c3c;"></div>
+                <span>🎁 mystery box</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #e67e22;"></div>
+                <span>💰 $100</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #f39c12;"></div>
+                <span>🍕 free pizza</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #27ae60;"></div>
+                <span>🎮 game pass</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #16a085;"></div>
+                <span>🎧 headphones</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #2980b9;"></div>
+                <span>☕ coffee</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #8e44ad;"></div>
+                <span>📱 phone case</span>
+            </div>
+            <div class="prize-item">
+                <div class="prize-color" style="background: #c0392b;"></div>
+                <span>🎯 try again</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const wheel = document.getElementById('wheel');
+        const spinButton = document.getElementById('spinButton');
+        const result = document.getElementById('result');
+        
+        const prizes = [
+            '🎁 mystery box',
+            '💰 $100',
+            '🍕 free pizza',
+            '🎮 game pass',
+            '🎧 headphones',
+            '☕ coffee',
+            '📱 phone case',
+            '🎯 try again'
+        ];
+        
+        let isSpinning = false;
+        
+        function spin() {
+            if (isSpinning) return;
+            
+            isSpinning = true;
+            spinButton.disabled = true;
+            result.textContent = '';
+            
+            // random spin between 5-10 full rotations plus a random angle
+            const minSpins = 5;
+            const maxSpins = 10;
+            const spins = Math.floor(Math.random() * (maxSpins - minSpins + 1)) + minSpins;
+            const finalAngle = Math.floor(Math.random() * 360);
+            const totalRotation = spins * 360 + finalAngle;
+            
+            wheel.style.transform = `rotate(${totalRotation}deg)`;
+            
+            // calculate which prize we landed on
+            const segmentAngle = 360 / 8;
+            const normalizedAngle = (360 - (finalAngle % 360)) % 360;
+            const prizeIndex = Math.floor(normalizedAngle / segmentAngle);
+            const winningPrize = prizes[prizeIndex];
+            
+            // show result after animation
+            setTimeout(() => {
+                result.textContent = `🎉 you won: ${winningPrize}!`;
+                isSpinning = false;
+                spinButton.disabled = false;
+            }, 4000);
+        }
+    </script>
+</body>
+</html>

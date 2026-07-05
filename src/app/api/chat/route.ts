@@ -246,7 +246,17 @@ export async function POST(req: NextRequest) {
 
       const trimMsgs2 = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-16)]
       const finalResponse = await callLLM(trimMsgs2, byok)
-      response = finalResponse + '\n\n---\n**Actions taken:**\n' + toolResults
+      // Return actions as separate field so frontend can make them collapsible
+      response = finalResponse
+      // Truncate each action result to keep it manageable
+      const truncatedActions = toolResults.split('\n\n').map(r => r.slice(0, 500)).join('\n\n')
+      return NextResponse.json({
+        ok: true,
+        response,
+        actions: truncatedActions,
+        totalMessages: CONVERSATION.totalMessages,
+        usedByok: !!byok,
+      })
     }
 
     CONVERSATION.messages.push({ role: 'assistant', content: response })

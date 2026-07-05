@@ -31,6 +31,34 @@ interface Settings {
 
 type Layout = 'desktop' | 'mobile'
 
+// Collapsible details block for actions taken
+function DetailsBlock({ title, content }: { title: string; content: string }) {
+  const [expanded, setExpanded] = useState(false)
+  return (
+    <div style={{ marginTop: '8px', border: '1px solid #2a4a5a', borderRadius: '4px', overflow: 'hidden' }}>
+      <button 
+        onClick={(e) => { e.stopPropagation(); setExpanded(!expanded) }}
+        style={{ 
+          width: '100%', background: '#1a2a3a', color: '#5ac8ff', border: 'none', 
+          padding: '5px 8px', fontFamily: 'monospace', fontSize: '0.68rem', cursor: 'pointer',
+          textAlign: 'left', fontWeight: 'bold'
+        }}
+      >
+        {expanded ? '▼' : '▶'} {title} ({content.trim().split('\n').length} lines)
+      </button>
+      {expanded && (
+        <pre style={{ 
+          margin: 0, padding: '6px', background: '#0a0a14', color: '#aaa', 
+          fontSize: '0.65rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', 
+          wordBreak: 'break-word', maxHeight: '200px', overflow: 'auto' 
+        }}>
+          {content.trim()}
+        </pre>
+      )}
+    </div>
+  )
+}
+
 export default function Home() {
   const [state, setState] = useState<State | null>(null)
   const [output, setOutput] = useState('')
@@ -43,6 +71,7 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const [lastMessage, setLastMessage] = useState<string>('')
+  const [connectionErrors, setConnectionErrors] = useState(0)
 
   const [files, setFiles] = useState<FileEntry[]>([])
   const [currentDir, setCurrentDir] = useState('')
@@ -109,7 +138,7 @@ export default function Home() {
     localStorage.setItem('z-os-conversation', JSON.stringify(chatMessages))
   }, [chatMessages])
 
-  // Poll desktop state
+  // Poll desktop state - tolerate transient failures
   useEffect(() => {
     aliveRef.current = true
     let t: ReturnType<typeof setTimeout>
@@ -121,10 +150,18 @@ export default function Home() {
         const j: State = await r.json()
         setState(j)
         setConnected(true)
+        setConnectionErrors(0)  // reset on success
         if (j.stdout) setOutput(p => (p + j.stdout).slice(-50000))
         if (j.stderr) setOutput(p => (p + j.stderr).slice(-50000))
-      } catch { setConnected(false) }
-      t = setTimeout(poll, 1000)
+      } catch { 
+        // Only mark as disconnected after 3 consecutive failures
+        setConnectionErrors(c => {
+          const newCount = c + 1
+          if (newCount >= 3) setConnected(false)
+          return newCount
+        })
+      }
+      t = setTimeout(poll, 2000)  // slower polling (2s instead of 1s)
     }
     poll()
     return () => { aliveRef.current = false; clearTimeout(t) }
@@ -183,13 +220,16 @@ export default function Home() {
       
       const j = await r.json()
       if (j.response) {
+        const msgContent = j.actions 
+          ? `${j.response}\n\n[details:Actions taken]${j.actions}[/details]`
+          : j.response
         if (retryMsg) {
           setChatMessages(p => {
             const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
-            return [...filtered, { role: 'assistant', content: j.response }]
+            return [...filtered, { role: 'assistant', content: msgContent }]
           })
         } else {
-          setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
+          setChatMessages(p => [...p, { role: 'assistant', content: msgContent }])
         }
       } else if (j.error) throw new Error(j.error)
     } catch (e: any) {
@@ -345,21 +385,32 @@ export default function Home() {
             <div style={{ marginTop: '6px', fontSize: '0.7rem', color: '#888' }}>Try: "list files in download"</div>
           </div>
         )}
-        {chatMessages.map((m, i) => (
+        {chatMessages.map((m, i) => {
+          // Parse [details:title]content[/details] blocks
+          const parts = m.content.split(/(\[details:[^\]]+\][\s\S]*?\[\/details\])/)
+          return (
           <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '90%', background: m.role === 'user' ? '#1a3a2a' : '#1a2a3a', border: `1px solid ${m.role === 'user' ? '#2a5a3a' : '#2a4a5a'}`, borderRadius: '8px', padding: '8px 12px', color: '#ddd', fontSize: '0.8rem', lineHeight: '1.45', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
             <div style={{ fontSize: '0.65rem', color: m.role === 'user' ? '#5a8a6a' : '#5a7a9a', marginBottom: '4px', fontWeight: 'bold' }}>{m.role === 'user' ? 'YOU' : '◈ Z'}</div>
-            {m.content}
+            {parts.map((part, pi) => {
+              const detailsMatch = part.match(/\[details:([^\]]+)\]([\s\S]*?)\[\/details\]/)
+              if (detailsMatch) {
+                return <DetailsBlock key={pi} title={detailsMatch[1]} content={detailsMatch[2]} />
+              }
+              return <span key={pi}>{part}</span>
+            })}
           </div>
-        ))}
+          )
+        })}
         {chatLoading && (
           <div style={{ alignSelf: 'flex-start', background: '#1a2a3a', border: '1px solid #2a4a5a', borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.8rem' }}>
             <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is working... (may run commands)</span>
           </div>
         )}
         {chatError && !chatLoading && (
-          <div style={{ alignSelf: 'center', background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: '8px', padding: '10px', color: '#ff8888', fontSize: '0.75rem', textAlign: 'center', maxWidth: '90%' }}>
-            <div style={{ marginBottom: '8px' }}>{chatError}</div>
-            <button onClick={retryLastMessage} style={{ background: '#5a2a2a', color: '#ffaaaa', border: '1px solid #7a3a3a', padding: '5px 16px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 'bold' }}>↻ Retry</button>
+          <div style={{ alignSelf: 'center', background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: '8px', padding: '8px 10px', color: '#ff8888', fontSize: '0.72rem', textAlign: 'center', maxWidth: '90%', display: 'flex', alignItems: 'center', gap: '8px', justifyContent: 'center' }}>
+            <span style={{ flex: 1 }}>{chatError}</span>
+            <button onClick={retryLastMessage} style={{ background: '#5a2a2a', color: '#ffaaaa', border: '1px solid #7a3a3a', padding: '4px 12px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer', fontWeight: 'bold', whiteSpace: 'nowrap' }}>↻ Retry</button>
+            <button onClick={() => setChatError(null)} style={{ background: 'transparent', color: '#ff8888', border: '1px solid #5a2a2a', padding: '4px 8px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>✕</button>
           </div>
         )}
       </div>
