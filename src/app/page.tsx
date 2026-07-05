@@ -43,7 +43,6 @@ export default function Home() {
   const [chatLoading, setChatLoading] = useState(false)
   const [chatError, setChatError] = useState<string | null>(null)
   const [lastMessage, setLastMessage] = useState<string>('')
-  const [retryCount, setRetryCount] = useState(0)
 
   const [files, setFiles] = useState<FileEntry[]>([])
   const [currentDir, setCurrentDir] = useState('')
@@ -165,83 +164,61 @@ export default function Home() {
     setLastMessage(msg)
     setChatLoading(true)
     
-    const maxRetries = 3
-    let attempt = 0
-    let success = false
-    
-    while (attempt < maxRetries && !success) {
-      attempt++
-      setRetryCount(attempt)
-      try {
-        const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 min overall timeout
-        
-        const r = await fetch('/api/chat', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            message: msg, 
-            apiKey: settings.apiKey || undefined, 
-            baseUrl: settings.baseUrl || undefined, 
-            model: settings.model || undefined, 
-            customPrompt: customPrompt || undefined, 
-            timeoutMs: uiSettings.timeoutMs 
-          }),
-          signal: controller.signal,
-        })
-        clearTimeout(timeoutId)
-        
-        // Check if response is HTML (server error page) instead of JSON
-        const contentType = r.headers.get('content-type') || ''
-        if (!contentType.includes('application/json')) {
-          const text = await r.text()
-          throw new Error(`Server returned ${contentType || 'unknown'} (HTTP ${r.status}). The server may have restarted. ${attempt < maxRetries ? 'Retrying...' : 'Try again in a moment.'}`)
-        }
-        
-        if (!r.ok) {
-          const text = await r.text()
-          throw new Error(`HTTP ${r.status}: ${text.slice(0, 200)}`)
-        }
-        
-        const j = await r.json()
-        if (j.response) {
-          // If retrying, replace the error message; otherwise add new
-          if (retryMsg || attempt > 1) {
-            setChatMessages(p => {
-              const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
-              return [...filtered, { role: 'assistant', content: j.response }]
-            })
-          } else {
-            setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
-          }
-          success = true
-        } else if (j.error) {
-          throw new Error(j.error)
-        }
-      } catch (e: any) {
-        if (e.name === 'AbortError') {
-          setChatError(`Request timed out after 5 minutes. The AI may still be working — check back in a minute.`)
-        } else {
-          setChatError(e.message)
-        }
-        
-        if (attempt < maxRetries) {
-          // Wait before retry (exponential backoff)
-          await new Promise(r => setTimeout(r, 2000 * attempt))
-        } else {
-          // Final failure - show error in chat with retry option
-          setChatMessages(p => [...p, { role: 'assistant', content: `[network error: ${e.message}]\n\nThe server may have restarted while you were away. Tap "Retry" below to resend your message.` }])
-        }
+    try {
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 min
+      
+      const r = await fetch('/api/chat', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          message: msg, 
+          apiKey: settings.apiKey || undefined, 
+          baseUrl: settings.baseUrl || undefined, 
+          model: settings.model || undefined, 
+          customPrompt: customPrompt || undefined, 
+          timeoutMs: uiSettings.timeoutMs 
+        }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      
+      // Check if response is HTML (server error page) instead of JSON
+      const contentType = r.headers.get('content-type') || ''
+      if (!contentType.includes('application/json')) {
+        throw new Error('Server restarted. Tap retry to resend.')
       }
+      
+      if (!r.ok) {
+        throw new Error(`HTTP ${r.status}`)
+      }
+      
+      const j = await r.json()
+      if (j.response) {
+        if (retryMsg) {
+          // Replace error message
+          setChatMessages(p => {
+            const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
+            return [...filtered, { role: 'assistant', content: j.response }]
+          })
+        } else {
+          setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
+        }
+      } else if (j.error) {
+        throw new Error(j.error)
+      }
+    } catch (e: any) {
+      const errMsg = e.name === 'AbortError' 
+        ? 'Request timed out. The AI may still be working. Tap retry to check.'
+        : e.message
+      setChatError(errMsg)
+      setChatMessages(p => [...p, { role: 'assistant', content: `[error: ${errMsg}]\n\nTap ↻ to retry.` }])
     }
-    
     setChatLoading(false)
-    setRetryCount(0)
   }
 
   const retryLastMessage = () => {
     if (lastMessage) {
-      // Remove the error message
-      setChatMessages(p => p.filter(m => !m.content.startsWith('[network error')))
+      setChatMessages(p => p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:')))
       setChatError(null)
       sendChat({ preventDefault: () => {} } as any, lastMessage)
     }
@@ -468,7 +445,7 @@ export default function Home() {
         ))}
         {chatLoading && (
           <div style={{ alignSelf: 'flex-start', background: '#1a2a3a', border: '1px solid #2a4a5a', borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.8rem' }}>
-            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is working... {retryCount > 0 && `(retry ${retryCount}/3)`} (may run commands)</span>
+            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is working... (may run commands)</span>
           </div>
         )}
         {chatError && !chatLoading && (
