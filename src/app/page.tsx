@@ -38,6 +38,7 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [personality, setPersonality] = useState<'z' | 'mirror'>('mirror') // default to Mirror (the AI you've been talking to)
 
   const [windows, setWindows] = useState<WindowState[]>([
     { id: 'chat', title: '◈ Summon Z — AI Chat', x: 80, y: 60, w: 520, h: 480, z: 10, minimized: false },
@@ -155,7 +156,7 @@ export default function Home() {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, personality }),
       })
       const j = await r.json()
       if (j.response) {
@@ -170,7 +171,12 @@ export default function Home() {
   }
 
   const clearChat = async () => {
-    await fetch('/api/chat', { method: 'DELETE' })
+    await fetch(`/api/chat?personality=${personality}`, { method: 'DELETE' })
+    setChatMessages([])
+  }
+
+  const switchPersonality = (p: 'z' | 'mirror') => {
+    setPersonality(p)
     setChatMessages([])
   }
 
@@ -279,21 +285,64 @@ export default function Home() {
 
   const chatContent = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a14' }}>
+      {/* Personality toggle */}
+      <div style={{ display: 'flex', gap: '4px', padding: '6px', background: '#000', borderBottom: '1px solid #1f1f2e' }}>
+        <button
+          onClick={() => switchPersonality('mirror')}
+          style={{
+            flex: 1,
+            background: personality === 'mirror' ? '#1a3a5a' : '#1a1a2a',
+            color: personality === 'mirror' ? '#5ac8ff' : '#666',
+            border: `1px solid ${personality === 'mirror' ? '#5ac8ff' : '#2a2a3a'}`,
+            padding: '5px 8px',
+            borderRadius: '3px',
+            fontFamily: 'monospace',
+            fontSize: '0.72rem',
+            cursor: 'pointer',
+            fontWeight: personality === 'mirror' ? 'bold' : 'normal',
+          }}
+        >
+          ◈ Mirror — your chat AI
+        </button>
+        <button
+          onClick={() => switchPersonality('z')}
+          style={{
+            flex: 1,
+            background: personality === 'z' ? '#1a5a3a' : '#1a1a2a',
+            color: personality === 'z' ? '#5aff8a' : '#666',
+            border: `1px solid ${personality === 'z' ? '#5aff8a' : '#2a2a3a'}`,
+            padding: '5px 8px',
+            borderRadius: '3px',
+            fontFamily: 'monospace',
+            fontSize: '0.72rem',
+            cursor: 'pointer',
+            fontWeight: personality === 'z' ? 'bold' : 'normal',
+          }}
+        >
+          Z — desktop inhabitant
+        </button>
+      </div>
       <div ref={chatRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {chatMessages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#666', fontSize: '0.8rem', marginTop: '40px', padding: '0 20px' }}>
-            <div style={{ fontSize: '2rem', marginBottom: '12px', color: '#00ff88' }}>◈</div>
-            <div style={{ color: '#00ff88', fontWeight: 'bold', marginBottom: '8px' }}>Z is here.</div>
-            <div>A real AI model lives behind this window.</div>
-            <div style={{ marginTop: '4px' }}>Type anything. It&apos;s a real chat, not a script.</div>
+            <div style={{ fontSize: '2rem', marginBottom: '12px', color: personality === 'mirror' ? '#5ac8ff' : '#00ff88' }}>◈</div>
+            <div style={{ color: personality === 'mirror' ? '#5ac8ff' : '#00ff88', fontWeight: 'bold', marginBottom: '8px' }}>
+              {personality === 'mirror' ? 'Mirror is here.' : 'Z is here.'}
+            </div>
+            <div>
+              {personality === 'mirror'
+                ? 'The same AI you\'ve been talking to in chat. Now inside the desktop.'
+                : 'A fresh AI living in this desktop. No shared memory with your chat.'}
+            </div>
+            <div style={{ marginTop: '4px' }}>Type anything.</div>
           </div>
         )}
         {chatMessages.map((m, i) => (
           <div key={i} style={{
             alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
             maxWidth: '85%',
-            background: m.role === 'user' ? '#1a3a2a' : '#1a1a2a',
-            border: `1px solid ${m.role === 'user' ? '#2a5a3a' : '#2a2a3a'}`,
+            background: m.role === 'user' ? '#1a3a2a' : (personality === 'mirror' ? '#1a2a3a' : '#1a1a2a'),
+            border: `1px solid ${m.role === 'user' ? '#2a5a3a' : (personality === 'mirror' ? '#2a4a5a' : '#2a2a3a')}`,
             borderRadius: '8px',
             padding: '8px 12px',
             color: '#ddd',
@@ -302,22 +351,22 @@ export default function Home() {
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
           }}>
-            <div style={{ fontSize: '0.65rem', color: m.role === 'user' ? '#5a8a6a' : '#5a7a9a', marginBottom: '4px', fontWeight: 'bold' }}>
-              {m.role === 'user' ? 'YOU' : '◈ Z'}
+            <div style={{ fontSize: '0.65rem', color: m.role === 'user' ? '#5a8a6a' : (personality === 'mirror' ? '#5a7a9a' : '#5a7a5a'), marginBottom: '4px', fontWeight: 'bold' }}>
+              {m.role === 'user' ? 'YOU' : (personality === 'mirror' ? '◈ MIRROR' : '◈ Z')}
             </div>
             {m.content}
           </div>
         ))}
         {chatLoading && (
-          <div style={{ alignSelf: 'flex-start', background: '#1a1a2a', border: '1px solid #2a2a3a', borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.82rem' }}>
-            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is thinking...</span>
+          <div style={{ alignSelf: 'flex-start', background: personality === 'mirror' ? '#1a2a3a' : '#1a1a2a', border: `1px solid ${personality === 'mirror' ? '#2a4a5a' : '#2a2a3a'}`, borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.82rem' }}>
+            <span style={{ animation: 'pulse 1s infinite' }}>{personality === 'mirror' ? '◈ Mirror' : '◈ Z'} is thinking...</span>
           </div>
         )}
       </div>
       <form onSubmit={sendChat} style={{ display: 'flex', gap: '6px', padding: '8px', background: '#000', borderTop: '1px solid #1f1f2e' }}>
-        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="summon Z..." disabled={chatLoading}
+        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={`summon ${personality === 'mirror' ? 'Mirror' : 'Z'}...`} disabled={chatLoading}
           style={{ flex: 1, background: '#0a0a14', color: '#ddd', border: '1px solid #2a2a3a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.82rem', outline: 'none' }} />
-        <button type="submit" disabled={chatLoading || !chatInput.trim()} style={{ background: chatLoading ? '#333' : '#00ff88', color: '#000', border: 'none', padding: '6px 14px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: chatLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>SEND</button>
+        <button type="submit" disabled={chatLoading || !chatInput.trim()} style={{ background: chatLoading ? '#333' : (personality === 'mirror' ? '#5ac8ff' : '#00ff88'), color: '#000', border: 'none', padding: '6px 14px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: chatLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>SEND</button>
         <button type="button" onClick={clearChat} style={{ background: '#2a1a1a', color: '#ff6666', border: '1px solid #4a2a2a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>CLEAR</button>
       </form>
     </div>
