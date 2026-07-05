@@ -198,45 +198,68 @@ export default function Home() {
     setLastMessage(msg)
     setChatLoading(true)
     
-    try {
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => controller.abort(), 300000)
-      
-      const r = await fetch('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: msg, apiKey: settings.apiKey || undefined, baseUrl: settings.baseUrl || undefined, 
-          model: settings.model || undefined, customPrompt: customPrompt || undefined, timeoutMs: uiSettings.timeoutMs 
-        }),
-        signal: controller.signal,
-      })
-      clearTimeout(timeoutId)
-      
-      const contentType = r.headers.get('content-type') || ''
-      if (!contentType.includes('application/json')) {
-        throw new Error('Server restarted. Tap retry to resend.')
-      }
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      
-      const j = await r.json()
-      if (j.response) {
-        const msgContent = j.actions 
-          ? `${j.response}\n\n[details:Actions taken]${j.actions}[/details]`
-          : j.response
-        if (retryMsg) {
-          setChatMessages(p => {
-            const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
-            return [...filtered, { role: 'assistant', content: msgContent }]
-          })
-        } else {
-          setChatMessages(p => [...p, { role: 'assistant', content: msgContent }])
+    // Silent auto-retry — don't show errors unless all attempts fail
+    const maxSilentRetries = 3
+    let lastError = ''
+    
+    for (let attempt = 0; attempt < maxSilentRetries; attempt++) {
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 300000)
+        
+        const r = await fetch('/api/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            message: msg, apiKey: settings.apiKey || undefined, baseUrl: settings.baseUrl || undefined, 
+            model: settings.model || undefined, customPrompt: customPrompt || undefined, timeoutMs: uiSettings.timeoutMs 
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+        
+        const contentType = r.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          // Server briefly down — wait and retry silently
+          lastError = 'Server briefly unavailable'
+          if (attempt < maxSilentRetries - 1) {
+            await new Promise(res => setTimeout(res, 2000 * (attempt + 1)))
+            continue
+          }
+          throw new Error('Server is restarting. Please wait a moment and tap retry.')
         }
-      } else if (j.error) throw new Error(j.error)
-    } catch (e: any) {
-      const errMsg = e.name === 'AbortError' ? 'Request timed out. Tap retry to check.' : e.message
-      setChatError(errMsg)
-      setChatMessages(p => [...p, { role: 'assistant', content: `[error: ${errMsg}]\n\nTap ↻ to retry.` }])
+        if (!r.ok) throw new Error(`HTTP ${r.status}`)
+        
+        const j = await r.json()
+        if (j.response) {
+          const msgContent = j.actions 
+            ? `${j.response}\n\n[details:Actions taken]${j.actions}[/details]`
+            : j.response
+          if (retryMsg || attempt > 0) {
+            setChatMessages(p => {
+              const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
+              return [...filtered, { role: 'assistant', content: msgContent }]
+            })
+          } else {
+            setChatMessages(p => [...p, { role: 'assistant', content: msgContent }])
+          }
+        } else if (j.error) throw new Error(j.error)
+        
+        // Success — done
+        setChatLoading(false)
+        return
+      } catch (e: any) {
+        lastError = e.name === 'AbortError' ? 'Request timed out' : e.message
+        if (attempt < maxSilentRetries - 1) {
+          // Wait before silent retry
+          await new Promise(res => setTimeout(res, 2000 * (attempt + 1)))
+          continue
+        }
+      }
     }
+    
+    // All retries failed — show error
+    setChatError(lastError)
+    setChatMessages(p => [...p, { role: 'assistant', content: `[error: ${lastError}]\n\nTap ↻ to retry.` }])
     setChatLoading(false)
   }
 

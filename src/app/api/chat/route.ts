@@ -1,5 +1,6 @@
 // /api/chat - single Z agent with editable system prompt, BYOK, full tools
 import { NextRequest, NextResponse } from 'next/server'
+import { spawn } from 'child_process'
 
 const DEFAULT_PROMPT = `You are Z — an AI living inside a desktop environment that a user is accessing through their browser. You have FULL developer power over this Linux sandbox.
 
@@ -31,7 +32,6 @@ Example: pip3 install --user --break-system-packages requests beautifulsoup4
 \`\`\`bash
 npm install -g <package>
 \`\`\`
-Example: npm install -g typescript
 
 **Node packages (local):**
 \`\`\`bash
@@ -43,12 +43,6 @@ cd /home/z/my-project && npm install <package>
 sudo apt-get install -y <package>
 \`\`\`
 If sudo fails, look for alternatives: pip3 install, npm install, or download static binaries with curl/wget.
-
-**Download static binaries:**
-\`\`\`bash
-curl -L <url> -o /home/z/my-project/<name>
-chmod +x /home/z/my-project/<name>
-\`\`\`
 
 What's already installed: bash, python3, node, bun, curl, wget, git, ffmpeg, PIL (Python imaging), numpy, jq, vim, standard Unix tools.
 
@@ -104,25 +98,59 @@ function extractTools(text: string): { type: string; input: string }[] {
   return tools
 }
 
+// Run commands directly via spawn (NOT via internal HTTP fetch — that doubled server load and crashed)
 async function runCommand(cmd: string, timeoutMs?: number): Promise<string> {
-  try {
-    const r = await fetch('http://localhost:3000/api/ai-exec', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cmd, timeoutMs }),
-    })
-    const j = await r.json()
-    if (j.ok) {
-      let result = ''
-      if (j.stdout) result += j.stdout
-      if (j.stderr) result += `\n[stderr]\n${j.stderr}`
-      if (j.timedOut) result += '\n[timed out]'
-      return result || '[no output]'
-    }
-    return `[error: ${j.error || 'command failed'}]`
-  } catch (e: any) {
-    return `[error: ${e.message}]`
+  const timeout = Math.min(Math.max(timeoutMs || 60000, 5000), 300000)
+  
+  // Block catastrophic commands
+  const catastrophic = ['rm -rf /', 'rm -rf /*', 'mkfs', 'shutdown', 'reboot', 'halt', 'dd if=/dev/zero of=/dev/']
+  const lowerCmd = cmd.toLowerCase()
+  for (const d of catastrophic) {
+    if (lowerCmd.includes(d)) return `[blocked: ${d}]`
   }
+  
+  return new Promise((resolve) => {
+    try {
+      const proc = spawn('bash', ['-c', cmd], {
+        cwd: '/home/z/my-project',
+        env: { ...process.env, TERM: 'dumb' },
+      })
+      
+      let stdout = ''
+      let stderr = ''
+      let timedOut = false
+      
+      const timer = setTimeout(() => {
+        timedOut = true
+        try { proc.kill('SIGKILL') } catch {}
+      }, timeout)
+      
+      proc.stdout.on('data', (d) => { 
+        stdout += d.toString()
+        if (stdout.length > 8000) stdout = stdout.slice(-4000) // cap memory
+      })
+      proc.stderr.on('data', (d) => { 
+        stderr += d.toString()
+        if (stderr.length > 4000) stderr = stderr.slice(-2000) // cap memory
+      })
+      
+      proc.on('close', (code) => {
+        clearTimeout(timer)
+        let result = ''
+        if (stdout) result += stdout.slice(0, 5000) // final cap
+        if (stderr) result += `\n[stderr]\n${stderr.slice(0, 2000)}`
+        if (timedOut) result += '\n[timed out]'
+        resolve(result || '[no output]')
+      })
+      
+      proc.on('error', (e) => {
+        clearTimeout(timer)
+        resolve(`[error: ${e.message}]`)
+      })
+    } catch (e: any) {
+      resolve(`[error: ${e.message}]`)
+    }
+  })
 }
 
 async function runTool(type: string, input: string): Promise<string> {
