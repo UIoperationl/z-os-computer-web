@@ -63,6 +63,9 @@ export default function Home() {
   const [showSettings, setShowSettings] = useState(false)
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
+  const [showSystemPrompt, setShowSystemPrompt] = useState(false)
+  const [savedConversations, setSavedConversations] = useState<{ z: ChatMsg[], mirror: ChatMsg[] }>({ z: [], mirror: [] })
+  const [promptTexts, setPromptTexts] = useState<{ z: string; mirror: string }>({ z: '', mirror: '' })
 
   const [windows, setWindows] = useState<WindowState[]>([
     { id: 'chat', title: '◈ AI Chat — Mirror/Z', x: 80, y: 60, w: 540, h: 500, z: 10, minimized: false },
@@ -81,12 +84,33 @@ export default function Home() {
     if (saved) {
       try { setSettings(JSON.parse(saved)) } catch {}
     }
+    // Load saved conversations
+    const savedConvs = localStorage.getItem('z-os-conversations')
+    if (savedConvs) {
+      try {
+        const parsed = JSON.parse(savedConvs)
+        setSavedConversations(parsed)
+        if (parsed.mirror && parsed.mirror.length > 0) {
+          setChatMessages(parsed.mirror)
+        }
+      } catch {}
+    }
+    // Load system prompts
+    fetch('/api/prompt').then(r => r.json()).then(d => setPromptTexts(d)).catch(() => {})
   }, [])
 
   // Save settings to localStorage
   useEffect(() => {
     localStorage.setItem('ai-settings', JSON.stringify(settings))
   }, [settings])
+
+  // Auto-save conversations whenever they change
+  useEffect(() => {
+    if (chatMessages.length === 0) return
+    const updated = { ...savedConversations, [personality]: chatMessages }
+    setSavedConversations(updated)
+    localStorage.setItem('z-os-conversations', JSON.stringify(updated))
+  }, [chatMessages, personality])
 
   // Poll desktop state
   useEffect(() => {
@@ -190,14 +214,10 @@ export default function Home() {
     setChatLoading(false)
   }
 
-  const clearChat = async () => {
-    await fetch(`/api/chat?personality=${personality}`, { method: 'DELETE' })
-    setChatMessages([])
-  }
-
   const switchPersonality = (p: 'z' | 'mirror') => {
     setPersonality(p)
-    setChatMessages([])
+    // Load saved conversation for this personality
+    setChatMessages(savedConversations[p] || [])
   }
 
   const fetchModels = async () => {
@@ -220,6 +240,20 @@ export default function Home() {
     } catch {}
     setLoadingModels(false)
   }
+
+  const clearChat = async () => {
+    await fetch(`/api/chat?personality=${personality}`, { method: 'DELETE' })
+    setChatMessages([])
+    // Clear from saved conversations too
+    const updated = { ...savedConversations, [personality]: [] }
+    setSavedConversations(updated)
+    localStorage.setItem('z-os-conversations', JSON.stringify(updated))
+  }
+
+  // Determine current model name for display
+  const currentModelName = settings.apiKey && settings.baseUrl
+    ? (settings.model || 'unknown BYOK')
+    : 'z-ai (default)'
 
   const focusWindow = (id: string) => {
     setWindows((prev) => {
@@ -342,7 +376,34 @@ export default function Home() {
         <button onClick={() => setShowSettings(!showSettings)} style={{ background: showSettings ? '#3a3a1a' : '#1a1a2a', color: showSettings ? '#ffaa00' : '#666', border: `1px solid ${showSettings ? '#ffaa00' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }}>
           ⚙ BYOK
         </button>
+        <button onClick={() => setShowSystemPrompt(!showSystemPrompt)} style={{ background: showSystemPrompt ? '#3a2a1a' : '#1a1a2a', color: showSystemPrompt ? '#ffaa44' : '#666', border: `1px solid ${showSystemPrompt ? '#ffaa44' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }} title="View system prompt">
+          📋 Prompt
+        </button>
       </div>
+      {/* Model indicator bar */}
+      <div style={{ padding: '4px 10px', background: '#050510', borderBottom: '1px solid #1f1f2e', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.65rem', fontFamily: 'monospace' }}>
+        <span style={{ color: '#666' }}>
+          Model: <span style={{ color: settings.apiKey ? '#5ac8ff' : '#00ff88' }}>{currentModelName}</span>
+        </span>
+        <span style={{ color: '#666' }}>
+          Personality: <span style={{ color: personality === 'mirror' ? '#5ac8ff' : '#00ff88' }}>{personality === 'mirror' ? 'Mirror' : 'Z'}</span>
+          {' · '}
+          Msgs: <span style={{ color: '#aaa' }}>{chatMessages.length}</span>
+          {savedConversations[personality]?.length > 0 && (
+            <> · Saved: <span style={{ color: '#00ff88' }}>✓</span></>
+          )}
+        </span>
+      </div>
+      {showSystemPrompt && (
+        <div style={{ padding: '8px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', maxHeight: '200px', overflowY: 'auto' }}>
+          <div style={{ fontSize: '0.65rem', color: '#ffaa44', marginBottom: '4px', fontWeight: 'bold' }}>
+            SYSTEM PROMPT — {personality === 'mirror' ? 'MIRROR (your chat AI)' : 'Z (desktop AI)'}
+          </div>
+          <pre style={{ color: '#aaa', fontSize: '0.65rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: '1.3' }}>
+            {personality === 'mirror' ? promptTexts.mirror : promptTexts.z}
+          </pre>
+        </div>
+      )}
       {showSettings && (
         <div style={{ padding: '8px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', display: 'flex', flexDirection: 'column', gap: '4px' }}>
           <div style={{ display: 'flex', gap: '4px' }}>
