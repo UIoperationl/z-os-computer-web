@@ -41,6 +41,9 @@ export default function Home() {
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
+  const [lastMessage, setLastMessage] = useState<string>('')
+  const [retryCount, setRetryCount] = useState(0)
 
   const [files, setFiles] = useState<FileEntry[]>([])
   const [currentDir, setCurrentDir] = useState('')
@@ -150,23 +153,98 @@ export default function Home() {
   }
   const sendCommand = async (e: React.FormEvent) => { e.preventDefault(); if (!input) return; await sendCmd(input); setInput('') }
 
-  const sendChat = async (e: React.FormEvent) => {
+  const sendChat = async (e: React.FormEvent, retryMsg?: string) => {
     e.preventDefault()
-    if (!chatInput.trim() || chatLoading) return
-    const msg = chatInput
-    setChatMessages(p => [...p, { role: 'user', content: msg }])
-    setChatInput('')
+    const msg = retryMsg || chatInput
+    if (!msg.trim() || chatLoading) return
+    setChatError(null)
+    if (!retryMsg) {
+      setChatMessages(p => [...p, { role: 'user', content: msg }])
+      setChatInput('')
+    }
+    setLastMessage(msg)
     setChatLoading(true)
-    try {
-      const r = await fetch('/api/chat', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, apiKey: settings.apiKey || undefined, baseUrl: settings.baseUrl || undefined, model: settings.model || undefined, customPrompt: customPrompt || undefined, timeoutMs: uiSettings.timeoutMs }),
-      })
-      const j = await r.json()
-      if (j.response) setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
-      else if (j.error) setChatMessages(p => [...p, { role: 'assistant', content: `[error: ${j.error}]` }])
-    } catch (e: any) { setChatMessages(p => [...p, { role: 'assistant', content: `[network error: ${e.message}]` }]) }
+    
+    const maxRetries = 3
+    let attempt = 0
+    let success = false
+    
+    while (attempt < maxRetries && !success) {
+      attempt++
+      setRetryCount(attempt)
+      try {
+        const controller = new AbortController()
+        const timeoutId = setTimeout(() => controller.abort(), 300000) // 5 min overall timeout
+        
+        const r = await fetch('/api/chat', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            message: msg, 
+            apiKey: settings.apiKey || undefined, 
+            baseUrl: settings.baseUrl || undefined, 
+            model: settings.model || undefined, 
+            customPrompt: customPrompt || undefined, 
+            timeoutMs: uiSettings.timeoutMs 
+          }),
+          signal: controller.signal,
+        })
+        clearTimeout(timeoutId)
+        
+        // Check if response is HTML (server error page) instead of JSON
+        const contentType = r.headers.get('content-type') || ''
+        if (!contentType.includes('application/json')) {
+          const text = await r.text()
+          throw new Error(`Server returned ${contentType || 'unknown'} (HTTP ${r.status}). The server may have restarted. ${attempt < maxRetries ? 'Retrying...' : 'Try again in a moment.'}`)
+        }
+        
+        if (!r.ok) {
+          const text = await r.text()
+          throw new Error(`HTTP ${r.status}: ${text.slice(0, 200)}`)
+        }
+        
+        const j = await r.json()
+        if (j.response) {
+          // If retrying, replace the error message; otherwise add new
+          if (retryMsg || attempt > 1) {
+            setChatMessages(p => {
+              const filtered = p.filter(m => !m.content.startsWith('[network error') && !m.content.startsWith('[error:'))
+              return [...filtered, { role: 'assistant', content: j.response }]
+            })
+          } else {
+            setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
+          }
+          success = true
+        } else if (j.error) {
+          throw new Error(j.error)
+        }
+      } catch (e: any) {
+        if (e.name === 'AbortError') {
+          setChatError(`Request timed out after 5 minutes. The AI may still be working — check back in a minute.`)
+        } else {
+          setChatError(e.message)
+        }
+        
+        if (attempt < maxRetries) {
+          // Wait before retry (exponential backoff)
+          await new Promise(r => setTimeout(r, 2000 * attempt))
+        } else {
+          // Final failure - show error in chat with retry option
+          setChatMessages(p => [...p, { role: 'assistant', content: `[network error: ${e.message}]\n\nThe server may have restarted while you were away. Tap "Retry" below to resend your message.` }])
+        }
+      }
+    }
+    
     setChatLoading(false)
+    setRetryCount(0)
+  }
+
+  const retryLastMessage = () => {
+    if (lastMessage) {
+      // Remove the error message
+      setChatMessages(p => p.filter(m => !m.content.startsWith('[network error')))
+      setChatError(null)
+      sendChat({ preventDefault: () => {} } as any, lastMessage)
+    }
   }
 
   const clearChat = async () => {
@@ -390,13 +468,20 @@ export default function Home() {
         ))}
         {chatLoading && (
           <div style={{ alignSelf: 'flex-start', background: '#1a2a3a', border: '1px solid #2a4a5a', borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.8rem' }}>
-            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is working... (may run commands)</span>
+            <span style={{ animation: 'pulse 1s infinite' }}>◈ Z is working... {retryCount > 0 && `(retry ${retryCount}/3)`} (may run commands)</span>
+          </div>
+        )}
+        {chatError && !chatLoading && (
+          <div style={{ alignSelf: 'center', background: '#3a1a1a', border: '1px solid #5a2a2a', borderRadius: '8px', padding: '10px', color: '#ff8888', fontSize: '0.75rem', textAlign: 'center', maxWidth: '90%' }}>
+            <div style={{ marginBottom: '8px' }}>{chatError}</div>
+            <button onClick={retryLastMessage} style={{ background: '#5a2a2a', color: '#ffaaaa', border: '1px solid #7a3a3a', padding: '5px 16px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer', fontWeight: 'bold' }}>↻ Retry</button>
           </div>
         )}
       </div>
       <form onSubmit={sendChat} style={{ display: 'flex', gap: '6px', padding: '8px', background: '#000', borderTop: '1px solid #1f1f2e' }}>
         <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="message Z..." disabled={chatLoading} style={{ flex: 1, background: '#0a0a14', color: '#ddd', border: '1px solid #2a2a3a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.8rem', outline: 'none' }} />
         <button type="submit" disabled={chatLoading || !chatInput.trim()} style={{ background: chatLoading ? '#333' : '#00ff88', color: '#000', border: 'none', padding: '6px 14px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: chatLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>SEND</button>
+        {chatError && !chatLoading && <button type="button" onClick={retryLastMessage} style={{ background: '#3a3a1a', color: '#ffaa00', border: '1px solid #5a5a2a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>↻</button>}
         <button type="button" onClick={clearChat} style={{ background: '#2a1a1a', color: '#ff6666', border: '1px solid #4a2a2a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>CLEAR</button>
       </form>
     </div>
