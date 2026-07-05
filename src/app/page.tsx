@@ -53,6 +53,15 @@ export default function Home() {
   const [availableModels, setAvailableModels] = useState<string[]>([])
   const [loadingModels, setLoadingModels] = useState(false)
 
+  // UI settings
+  const [uiSettings, setUiSettings] = useState({
+    theme: 'dark' as 'dark' | 'light' | 'matrix',
+    accentColor: '#00ff88',
+    fontSize: 0.8,
+    timeoutMs: 60000,
+  })
+  const [showUISettings, setShowUISettings] = useState(false)
+
   const [showPromptEditor, setShowPromptEditor] = useState(false)
   const [defaultPrompt, setDefaultPrompt] = useState('')
   const [customPrompt, setCustomPrompt] = useState('')
@@ -89,10 +98,13 @@ export default function Home() {
     if (savedConvs) try { setChatMessages(JSON.parse(savedConvs)) } catch {}
     const savedPrompt = localStorage.getItem('z-os-custom-prompt')
     if (savedPrompt) setCustomPrompt(savedPrompt)
+    const savedUI = localStorage.getItem('z-os-ui-settings')
+    if (savedUI) try { setUiSettings(JSON.parse(savedUI)) } catch {}
     fetch('/api/prompt').then(r => r.json()).then(d => setDefaultPrompt(d.default || '')).catch(() => {})
   }, [])
 
   useEffect(() => { localStorage.setItem('z-os-settings', JSON.stringify(settings)) }, [settings])
+  useEffect(() => { localStorage.setItem('z-os-ui-settings', JSON.stringify(uiSettings)) }, [uiSettings])
   useEffect(() => {
     if (chatMessages.length === 0) return
     localStorage.setItem('z-os-conversation', JSON.stringify(chatMessages))
@@ -148,7 +160,7 @@ export default function Home() {
     try {
       const r = await fetch('/api/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, apiKey: settings.apiKey || undefined, baseUrl: settings.baseUrl || undefined, model: settings.model || undefined, customPrompt: customPrompt || undefined }),
+        body: JSON.stringify({ message: msg, apiKey: settings.apiKey || undefined, baseUrl: settings.baseUrl || undefined, model: settings.model || undefined, customPrompt: customPrompt || undefined, timeoutMs: uiSettings.timeoutMs }),
       })
       const j = await r.json()
       if (j.response) setChatMessages(p => [...p, { role: 'assistant', content: j.response }])
@@ -225,6 +237,15 @@ export default function Home() {
   const quickCmds = ['ls -la', 'pwd', 'whoami', 'date', 'cat scripts/desktop_heartbeat.log | tail -10', 'ps aux | head -10', 'df -h']
   const formatSize = (b: number) => b < 1024 ? `${b}B` : b < 1048576 ? `${(b/1024).toFixed(1)}K` : `${(b/1048576).toFixed(1)}M`
   const currentModelName = settings.apiKey && settings.baseUrl ? (settings.model || 'unknown BYOK') : 'z-ai (default)'
+  
+  // Theme colors
+  const themeColors = {
+    dark: { bg: '#0a0a14', bgGradient: 'linear-gradient(135deg, #0a0a14 0%, #0e0e1a 100%)', surface: '#11111a', surfaceLight: '#1a1a2a' },
+    light: { bg: '#f5f5f5', bgGradient: 'linear-gradient(135deg, #f5f5f5 0%, #e8e8e8 100%)', surface: '#ffffff', surfaceLight: '#e0e0e0' },
+    matrix: { bg: '#000000', bgGradient: 'linear-gradient(135deg, #000000 0%, #001100 100%)', surface: '#0a0a0a', surfaceLight: '#0f1f0f' },
+  }
+  const tc = themeColors[uiSettings.theme]
+  const accent = uiSettings.accentColor
 
   const renderWindow = (w: WindowState, content: React.ReactNode) => {
     if (w.minimized || layout === 'mobile') return null
@@ -277,6 +298,7 @@ export default function Home() {
       <div style={{ display: 'flex', gap: '4px', padding: '6px', background: '#000', borderBottom: '1px solid #1f1f2e' }}>
         <button onClick={() => setShowSettings(!showSettings)} style={{ flex: 1, background: showSettings ? '#3a3a1a' : '#1a1a2a', color: showSettings ? '#ffaa00' : '#666', border: `1px solid ${showSettings ? '#ffaa00' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }}>⚙ BYOK</button>
         <button onClick={() => setShowPromptEditor(!showPromptEditor)} style={{ flex: 1, background: showPromptEditor ? '#3a2a1a' : '#1a1a2a', color: showPromptEditor ? '#ffaa44' : '#666', border: `1px solid ${showPromptEditor ? '#ffaa44' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }}>📋 Prompt</button>
+        <button onClick={() => setShowUISettings(!showUISettings)} style={{ flex: 1, background: showUISettings ? '#3a1a3a' : '#1a1a2a', color: showUISettings ? '#ff44ff' : '#666', border: `1px solid ${showUISettings ? '#ff44ff' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }}>🎨 UI</button>
       </div>
       {/* Model indicator */}
       <div style={{ padding: '4px 10px', background: '#050510', borderBottom: '1px solid #1f1f2e', display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem', fontFamily: 'monospace' }}>
@@ -310,6 +332,44 @@ export default function Home() {
             <button onClick={savePrompt} disabled={!promptDirty} style={{ flex: 1, background: promptDirty ? '#1a5a3a' : '#333', color: promptDirty ? '#5aff8a' : '#666', border: '1px solid #2a5a3a', padding: '4px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: promptDirty ? 'pointer' : 'not-allowed' }}>Save & Reset Chat</button>
             <button onClick={resetPrompt} style={{ background: '#3a1a1a', color: '#ff6666', border: '1px solid #5a2a2a', padding: '4px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>Reset to Default</button>
           </div>
+        </div>
+      )}
+      {/* UI Settings panel */}
+      {showUISettings && (
+        <div style={{ padding: '8px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+          <div style={{ fontSize: '0.65rem', color: '#ff44ff', fontWeight: 'bold' }}>UI SETTINGS</div>
+          
+          {/* Theme */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#888', fontSize: '0.7rem', width: '60px' }}>Theme:</span>
+            {(['dark', 'light', 'matrix'] as const).map(t => (
+              <button key={t} onClick={() => setUiSettings({ ...uiSettings, theme: t })} style={{ background: uiSettings.theme === t ? '#3a1a3a' : '#1a1a2a', color: uiSettings.theme === t ? '#ff44ff' : '#666', border: `1px solid ${uiSettings.theme === t ? '#ff44ff' : '#2a2a3a'}`, padding: '3px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.68rem', cursor: 'pointer' }}>{t}</button>
+            ))}
+          </div>
+          
+          {/* Accent color */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#888', fontSize: '0.7rem', width: '60px' }}>Accent:</span>
+            {['#00ff88', '#5ac8ff', '#ff44ff', '#ffaa00', '#ff4488', '#88ff44'].map(c => (
+              <button key={c} onClick={() => setUiSettings({ ...uiSettings, accentColor: c })} style={{ background: c, border: uiSettings.accentColor === c ? '2px solid #fff' : `2px solid ${c}55`, width: '24px', height: '24px', borderRadius: '3px', cursor: 'pointer' }} />
+            ))}
+          </div>
+          
+          {/* Font size */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#888', fontSize: '0.7rem', width: '60px' }}>Font:</span>
+            <input type="range" min="0.6" max="1.2" step="0.05" value={uiSettings.fontSize} onChange={e => setUiSettings({ ...uiSettings, fontSize: parseFloat(e.target.value) })} style={{ flex: 1 }} />
+            <span style={{ color: '#aaa', fontSize: '0.7rem', width: '40px' }}>{uiSettings.fontSize.toFixed(2)}rem</span>
+          </div>
+          
+          {/* Timeout */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span style={{ color: '#888', fontSize: '0.7rem', width: '60px' }}>Timeout:</span>
+            <input type="range" min="10000" max="300000" step="10000" value={uiSettings.timeoutMs} onChange={e => setUiSettings({ ...uiSettings, timeoutMs: parseInt(e.target.value) })} style={{ flex: 1 }} />
+            <span style={{ color: '#aaa', fontSize: '0.7rem', width: '50px' }}>{(uiSettings.timeoutMs / 1000).toFixed(0)}s</span>
+          </div>
+          
+          <div style={{ fontSize: '0.6rem', color: '#666' }}>Changes save automatically. Refresh to see theme changes fully.</div>
         </div>
       )}
       {/* Messages */}
@@ -432,15 +492,15 @@ export default function Home() {
 
   // DESKTOP LAYOUT
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #0a0a14 0%, #0e0e1a 100%)', color: '#00ff88', fontFamily: 'monospace', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ background: '#0a0a14', borderBottom: '1px solid #1f1f2e', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '1.5rem', fontSize: '0.78rem' }}>
-        <span style={{ color: '#00ff88', fontWeight: 'bold', fontSize: '0.9rem' }}>◈ ZAI-OS</span>
+    <div style={{ minHeight: '100vh', background: tc.bgGradient, color: accent, fontFamily: 'monospace', overflow: 'hidden', display: 'flex', flexDirection: 'column', fontSize: `${uiSettings.fontSize}rem` }}>
+      <div style={{ background: tc.bg, borderBottom: `1px solid ${tc.surfaceLight}`, padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '1.5rem', fontSize: '0.78rem' }}>
+        <span style={{ color: accent, fontWeight: 'bold', fontSize: '0.9rem' }}>◈ ZAI-OS</span>
         <span style={{ color: '#888' }}>|</span>
-        <span style={{ color: '#aaa' }}>the AI&apos;s computer</span>
+        <span style={{ color: uiSettings.theme === 'light' ? '#333' : '#aaa' }}>the AI&apos;s computer</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '1rem', alignItems: 'center' }}>
           {state && <span style={{ color: '#ff4444', fontSize: '0.82rem' }}>♥ #{state.heartbeat} · {state.elapsed.toFixed(0)}s</span>}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '2px 8px', background: connected ? '#0a2a1a' : '#2a0a0a', border: `1px solid ${connected ? '#00ff88' : '#ff4444'}`, borderRadius: '3px', fontSize: '0.68rem' }}>
-            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: connected ? '#00ff88' : '#ff4444', animation: 'pulse 1.5s infinite' }} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '2px 8px', background: connected ? `${accent}22` : '#2a0a0a', border: `1px solid ${connected ? accent : '#ff4444'}`, borderRadius: '3px', fontSize: '0.68rem' }}>
+            <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: connected ? accent : '#ff4444', animation: 'pulse 1.5s infinite' }} />
             {connected ? 'ONLINE' : 'OFFLINE'}
           </div>
         </div>

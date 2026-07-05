@@ -1,15 +1,17 @@
-// /api/ai-exec - runs shell commands for the AI
-// Increased timeout to 60s, better error reporting, less aggressive blocking
+// /api/ai-exec - runs shell commands for the AI with custom timeout
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
 
 export async function POST(req: NextRequest) {
   const body = await req.json()
-  const { cmd, timeoutMs = 60000 } = body as { cmd: string; timeoutMs?: number }
+  const { cmd, timeoutMs } = body as { cmd: string; timeoutMs?: number }
 
   if (!cmd || typeof cmd !== 'string') {
     return NextResponse.json({ error: 'cmd required' }, { status: 400 })
   }
+
+  // Use provided timeout or default 60s, max 300s
+  const timeout = Math.min(Math.max(timeoutMs || 60000, 5000), 300000)
 
   // Only block truly catastrophic commands
   const catastrophic = ['rm -rf /', 'rm -rf /*', 'mkfs', 'shutdown', 'reboot', 'halt', 'dd if=/dev/zero of=/dev/']
@@ -38,7 +40,7 @@ export async function POST(req: NextRequest) {
     const timer = setTimeout(() => {
       timedOut = true
       try { proc.kill('SIGKILL') } catch {}
-    }, timeoutMs)
+    }, timeout)
     
     proc.stdout.on('data', (d) => { stdout += d.toString() })
     proc.stderr.on('data', (d) => { stderr += d.toString() })
@@ -47,11 +49,12 @@ export async function POST(req: NextRequest) {
       clearTimeout(timer)
       resolve(NextResponse.json({
         ok: code === 0,
-        stdout: stdout.slice(0, 20000), // increased cap
+        stdout: stdout.slice(0, 20000),
         stderr: stderr.slice(0, 10000),
         exitCode: code,
         timedOut,
         cmd,
+        timeoutUsed: timeout,
       }))
     })
     
