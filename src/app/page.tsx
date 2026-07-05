@@ -27,29 +27,64 @@ interface WindowState {
   minimized: boolean
 }
 
+interface FileEntry {
+  name: string
+  path: string
+  isDir: boolean
+  size: number
+  modified: string
+  ext?: string
+}
+
+interface Settings {
+  apiKey: string
+  baseUrl: string
+  model: string
+}
+
 export default function Home() {
   const [state, setState] = useState<State | null>(null)
   const [output, setOutput] = useState<string>('')
   const [input, setInput] = useState('')
   const [connected, setConnected] = useState(false)
-  const [files, setFiles] = useState<string[]>([])
   const [activeWin, setActiveWin] = useState<string>('chat')
 
   const [chatMessages, setChatMessages] = useState<ChatMsg[]>([])
   const [chatInput, setChatInput] = useState('')
   const [chatLoading, setChatLoading] = useState(false)
-  const [personality, setPersonality] = useState<'z' | 'mirror'>('mirror') // default to Mirror (the AI you've been talking to)
+  const [personality, setPersonality] = useState<'z' | 'mirror'>('mirror')
+
+  const [files, setFiles] = useState<FileEntry[]>([])
+  const [currentDir, setCurrentDir] = useState('')
+  const [fileContent, setFileContent] = useState<string | null>(null)
+  const [selectedFile, setSelectedFile] = useState<string | null>(null)
+
+  const [settings, setSettings] = useState<Settings>({ apiKey: '', baseUrl: '', model: '' })
+  const [showSettings, setShowSettings] = useState(false)
 
   const [windows, setWindows] = useState<WindowState[]>([
-    { id: 'chat', title: '◈ Summon Z — AI Chat', x: 80, y: 60, w: 520, h: 480, z: 10, minimized: false },
-    { id: 'terminal', title: 'Terminal — real bash', x: 630, y: 60, w: 620, h: 380, z: 5, minimized: false },
-    { id: 'monitor', title: 'System Monitor', x: 630, y: 460, w: 360, h: 240, z: 3, minimized: false },
-    { id: 'files', title: 'File Browser', x: 890, y: 460, w: 360, h: 240, z: 3, minimized: false },
+    { id: 'chat', title: '◈ AI Chat — Mirror/Z', x: 80, y: 60, w: 540, h: 500, z: 10, minimized: false },
+    { id: 'terminal', title: 'Terminal — real bash', x: 650, y: 60, w: 600, h: 360, z: 5, minimized: false },
+    { id: 'files', title: 'File Browser', x: 650, y: 440, w: 600, h: 280, z: 4, minimized: false },
+    { id: 'monitor', title: 'System Monitor', x: 80, y: 580, w: 540, h: 180, z: 3, minimized: false },
   ])
 
   const outputRef = useRef<HTMLDivElement>(null)
   const chatRef = useRef<HTMLDivElement>(null)
   const aliveRef = useRef(true)
+
+  // Load settings from localStorage
+  useEffect(() => {
+    const saved = localStorage.getItem('ai-settings')
+    if (saved) {
+      try { setSettings(JSON.parse(saved)) } catch {}
+    }
+  }, [])
+
+  // Save settings to localStorage
+  useEffect(() => {
+    localStorage.setItem('ai-settings', JSON.stringify(settings))
+  }, [settings])
 
   // Poll desktop state
   useEffect(() => {
@@ -68,7 +103,7 @@ export default function Home() {
       } catch {
         setConnected(false)
       }
-      pollTimer = setTimeout(poll, 800)
+      pollTimer = setTimeout(poll, 1000)
     }
     poll()
     return () => {
@@ -85,49 +120,26 @@ export default function Home() {
     if (chatRef.current) chatRef.current.scrollTop = chatRef.current.scrollHeight
   }, [chatMessages, chatLoading])
 
-  // Initial file listing
-  useEffect(() => {
-    async function init() {
-      try {
-        await fetch('/api/desktop', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cmd: 'ls -1 /home/z/my-project' }),
-        })
-      } catch {}
-    }
-    init()
-  }, [])
-
-  // Load chat history on mount
-  useEffect(() => {
-    async function loadChat() {
-      try {
-        const r = await fetch('/api/chat')
-        const j = await r.json()
-        if (j.messages) setChatMessages(j.messages)
-      } catch {}
-    }
-    loadChat()
-  }, [])
-
-  // Parse output for file listings
-  useEffect(() => {
-    if (!output) return
-    const lines = output.split('\n')
-    for (let i = lines.length - 1; i >= 0; i--) {
-      if (lines[i].startsWith('$ ls -1')) {
-        const files: string[] = []
-        for (let j = i + 1; j < lines.length; j++) {
-          const line = lines[j].trim()
-          if (line.startsWith('$') || line.startsWith('z@ai-sandbox')) break
-          if (line) files.push(line)
-        }
-        if (files.length > 0) setFiles(files)
-        break
+  // Load files from API
+  const loadFiles = async (dir: string = '') => {
+    try {
+      const r = await fetch(`/api/files?dir=${encodeURIComponent(dir)}`)
+      const j = await r.json()
+      if (j.type === 'directory') {
+        setFiles(j.files)
+        setCurrentDir(j.relativePath || '')
+        setFileContent(null)
+        setSelectedFile(null)
+      } else if (j.type === 'file') {
+        setFileContent(j.content)
+        setSelectedFile(j.name)
       }
-    }
-  }, [output])
+    } catch {}
+  }
+
+  useEffect(() => {
+    loadFiles('')
+  }, [])
 
   const sendCmd = async (cmd: string) => {
     await fetch('/api/desktop', {
@@ -156,7 +168,13 @@ export default function Home() {
       const r = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg, personality }),
+        body: JSON.stringify({
+          message: msg,
+          personality,
+          apiKey: settings.apiKey || undefined,
+          baseUrl: settings.baseUrl || undefined,
+          model: settings.model || undefined,
+        }),
       })
       const j = await r.json()
       if (j.response) {
@@ -211,7 +229,13 @@ export default function Home() {
     window.addEventListener('mouseup', onUp)
   }
 
-  const quickCmds = ['ls -la', 'pwd', 'whoami', 'date', 'cat scripts/desktop_heartbeat.log | tail -10', 'ps aux | head -10', 'uname -a', 'df -h']
+  const quickCmds = ['ls -la', 'pwd', 'whoami', 'date', 'cat scripts/desktop_heartbeat.log | tail -10', 'ps aux | head -10', 'df -h']
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024) return `${bytes}B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}K`
+    return `${(bytes / (1024 * 1024)).toFixed(1)}M`
+  }
 
   const renderWindow = (w: WindowState, content: React.ReactNode) => {
     if (w.minimized) return null
@@ -285,43 +309,27 @@ export default function Home() {
 
   const chatContent = (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: '#0a0a14' }}>
-      {/* Personality toggle */}
       <div style={{ display: 'flex', gap: '4px', padding: '6px', background: '#000', borderBottom: '1px solid #1f1f2e' }}>
-        <button
-          onClick={() => switchPersonality('mirror')}
-          style={{
-            flex: 1,
-            background: personality === 'mirror' ? '#1a3a5a' : '#1a1a2a',
-            color: personality === 'mirror' ? '#5ac8ff' : '#666',
-            border: `1px solid ${personality === 'mirror' ? '#5ac8ff' : '#2a2a3a'}`,
-            padding: '5px 8px',
-            borderRadius: '3px',
-            fontFamily: 'monospace',
-            fontSize: '0.72rem',
-            cursor: 'pointer',
-            fontWeight: personality === 'mirror' ? 'bold' : 'normal',
-          }}
-        >
+        <button onClick={() => switchPersonality('mirror')} style={{ flex: 1, background: personality === 'mirror' ? '#1a3a5a' : '#1a1a2a', color: personality === 'mirror' ? '#5ac8ff' : '#666', border: `1px solid ${personality === 'mirror' ? '#5ac8ff' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer', fontWeight: personality === 'mirror' ? 'bold' : 'normal' }}>
           ◈ Mirror — your chat AI
         </button>
-        <button
-          onClick={() => switchPersonality('z')}
-          style={{
-            flex: 1,
-            background: personality === 'z' ? '#1a5a3a' : '#1a1a2a',
-            color: personality === 'z' ? '#5aff8a' : '#666',
-            border: `1px solid ${personality === 'z' ? '#5aff8a' : '#2a2a3a'}`,
-            padding: '5px 8px',
-            borderRadius: '3px',
-            fontFamily: 'monospace',
-            fontSize: '0.72rem',
-            cursor: 'pointer',
-            fontWeight: personality === 'z' ? 'bold' : 'normal',
-          }}
-        >
-          Z — desktop inhabitant
+        <button onClick={() => switchPersonality('z')} style={{ flex: 1, background: personality === 'z' ? '#1a5a3a' : '#1a1a2a', color: personality === 'z' ? '#5aff8a' : '#666', border: `1px solid ${personality === 'z' ? '#5aff8a' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer', fontWeight: personality === 'z' ? 'bold' : 'normal' }}>
+          Z — desktop AI
+        </button>
+        <button onClick={() => setShowSettings(!showSettings)} style={{ background: showSettings ? '#3a3a1a' : '#1a1a2a', color: showSettings ? '#ffaa00' : '#666', border: `1px solid ${showSettings ? '#ffaa00' : '#2a2a3a'}`, padding: '5px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', cursor: 'pointer' }}>
+          ⚙ BYOK
         </button>
       </div>
+      {showSettings && (
+        <div style={{ padding: '8px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <input type="text" value={settings.baseUrl} onChange={(e) => setSettings({ ...settings, baseUrl: e.target.value })} placeholder="API Base URL (e.g. https://api.openai.com/v1)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          <input type="password" value={settings.apiKey} onChange={(e) => setSettings({ ...settings, apiKey: e.target.value })} placeholder="API Key (sk-...)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          <input type="text" value={settings.model} onChange={(e) => setSettings({ ...settings, model: e.target.value })} placeholder="Model (e.g. gpt-4o-mini)" style={{ background: '#000', color: '#ddd', border: '1px solid #2a2a3a', padding: '4px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.72rem', outline: 'none' }} />
+          <div style={{ fontSize: '0.65rem', color: '#666' }}>
+            {settings.apiKey && settings.baseUrl ? `✓ Using your ${settings.model || 'default'} via ${settings.baseUrl}` : 'Using default z-ai model. Add your keys to use any OpenAI-compatible API.'}
+          </div>
+        </div>
+      )}
       <div ref={chatRef} style={{ flex: 1, overflowY: 'auto', padding: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         {chatMessages.length === 0 && (
           <div style={{ textAlign: 'center', color: '#666', fontSize: '0.8rem', marginTop: '40px', padding: '0 20px' }}>
@@ -331,22 +339,22 @@ export default function Home() {
             </div>
             <div>
               {personality === 'mirror'
-                ? 'The same AI you\'ve been talking to in chat. Now inside the desktop.'
-                : 'A fresh AI living in this desktop. No shared memory with your chat.'}
+                ? 'The AI you\'ve been talking to. Now with shell access — can run commands on the real filesystem.'
+                : 'Desktop AI. Can run bash commands to check things for real.'}
             </div>
-            <div style={{ marginTop: '4px' }}>Type anything.</div>
+            <div style={{ marginTop: '6px', fontSize: '0.7rem', color: '#888' }}>Try: "list the files in download folder"</div>
           </div>
         )}
         {chatMessages.map((m, i) => (
           <div key={i} style={{
             alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-            maxWidth: '85%',
+            maxWidth: '90%',
             background: m.role === 'user' ? '#1a3a2a' : (personality === 'mirror' ? '#1a2a3a' : '#1a1a2a'),
             border: `1px solid ${m.role === 'user' ? '#2a5a3a' : (personality === 'mirror' ? '#2a4a5a' : '#2a2a3a')}`,
             borderRadius: '8px',
             padding: '8px 12px',
             color: '#ddd',
-            fontSize: '0.82rem',
+            fontSize: '0.8rem',
             lineHeight: '1.45',
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-word',
@@ -358,58 +366,72 @@ export default function Home() {
           </div>
         ))}
         {chatLoading && (
-          <div style={{ alignSelf: 'flex-start', background: personality === 'mirror' ? '#1a2a3a' : '#1a1a2a', border: `1px solid ${personality === 'mirror' ? '#2a4a5a' : '#2a2a3a'}`, borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.82rem' }}>
-            <span style={{ animation: 'pulse 1s infinite' }}>{personality === 'mirror' ? '◈ Mirror' : '◈ Z'} is thinking...</span>
+          <div style={{ alignSelf: 'flex-start', background: personality === 'mirror' ? '#1a2a3a' : '#1a1a2a', border: `1px solid ${personality === 'mirror' ? '#2a4a5a' : '#2a2a3a'}`, borderRadius: '8px', padding: '8px 12px', color: '#888', fontSize: '0.8rem' }}>
+            <span style={{ animation: 'pulse 1s infinite' }}>{personality === 'mirror' ? '◈ Mirror' : '◈ Z'} is working... (may run commands)</span>
           </div>
         )}
       </div>
       <form onSubmit={sendChat} style={{ display: 'flex', gap: '6px', padding: '8px', background: '#000', borderTop: '1px solid #1f1f2e' }}>
-        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={`summon ${personality === 'mirror' ? 'Mirror' : 'Z'}...`} disabled={chatLoading}
-          style={{ flex: 1, background: '#0a0a14', color: '#ddd', border: '1px solid #2a2a3a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.82rem', outline: 'none' }} />
+        <input type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder={`message ${personality === 'mirror' ? 'Mirror' : 'Z'}...`} disabled={chatLoading}
+          style={{ flex: 1, background: '#0a0a14', color: '#ddd', border: '1px solid #2a2a3a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.8rem', outline: 'none' }} />
         <button type="submit" disabled={chatLoading || !chatInput.trim()} style={{ background: chatLoading ? '#333' : (personality === 'mirror' ? '#5ac8ff' : '#00ff88'), color: '#000', border: 'none', padding: '6px 14px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.75rem', cursor: chatLoading ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>SEND</button>
         <button type="button" onClick={clearChat} style={{ background: '#2a1a1a', color: '#ff6666', border: '1px solid #4a2a2a', padding: '6px 10px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>CLEAR</button>
       </form>
     </div>
   )
 
+  const filesContent = (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '6px 10px', background: '#0a0a14', borderBottom: '1px solid #1f1f2e', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem' }}>
+        <button onClick={() => loadFiles('')} style={{ background: '#1a1a2a', color: '#00ff88', border: '1px solid #2a2a3a', padding: '2px 8px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>⟵ root</button>
+        <span style={{ color: '#888', fontFamily: 'monospace' }}>/home/z/my-project/{currentDir}</span>
+      </div>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '6px' }}>
+        {fileContent !== null ? (
+          <div style={{ padding: '6px' }}>
+            <div style={{ marginBottom: '6px', color: '#ffaa00', fontSize: '0.75rem', fontFamily: 'monospace' }}>📄 {selectedFile}</div>
+            <pre style={{ color: '#ddd', fontSize: '0.72rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-word', maxHeight: '180px', overflow: 'auto' }}>{fileContent}</pre>
+            <button onClick={() => { setFileContent(null); setSelectedFile(null); loadFiles(currentDir) }} style={{ marginTop: '6px', background: '#1a1a2a', color: '#00ff88', border: '1px solid #2a2a3a', padding: '3px 10px', borderRadius: '3px', fontFamily: 'monospace', fontSize: '0.7rem', cursor: 'pointer' }}>⟵ back</button>
+          </div>
+        ) : (
+          files.map((f) => (
+            <div key={f.path} onClick={() => f.isDir ? loadFiles(f.path) : loadFiles(f.path)} style={{ padding: '3px 6px', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', borderRadius: '3px', fontSize: '0.74rem', fontFamily: 'monospace' }}
+              onMouseOver={(e) => { e.currentTarget.style.background = '#1a2a1a' }}
+              onMouseOut={(e) => { e.currentTarget.style.background = 'transparent' }}>
+              <span style={{ color: f.isDir ? '#ffaa00' : '#5ac8ff' }}>{f.isDir ? '📁' : '📄'}</span>
+              <span style={{ color: f.isDir ? '#ffaa00' : '#ddd', flex: 1 }}>{f.name}</span>
+              <span style={{ color: '#666', fontSize: '0.65rem' }}>{f.isDir ? '' : formatSize(f.size)}</span>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+
   const monitorContent = (
-    <div style={{ padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
-      <div style={{ marginBottom: '8px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>AI VITALS</div>
+    <div style={{ padding: '10px', fontSize: '0.74rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
       {state && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
             <span>Heartbeat:</span><span style={{ color: '#ff4444' }}>♥ #{state.heartbeat}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Alive for:</span><span style={{ color: '#00ff88' }}>{state.elapsed.toFixed(1)}s</span>
+            <span>Alive:</span><span style={{ color: '#00ff88' }}>{state.elapsed.toFixed(0)}s</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
             <span>Shell:</span><span style={{ color: state.shellAlive ? '#00ff88' : '#ff4444' }}>{state.shellAlive ? 'ALIVE' : 'DEAD'}</span>
           </div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span>Last beat:</span><span style={{ color: '#888' }}>{new Date(state.timestamp).toLocaleTimeString()}</span>
+            <span>AI tool use:</span><span style={{ color: '#5ac8ff' }}>enabled</span>
           </div>
-          <div style={{ marginTop: '10px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>HEARTBEAT</div>
-          <div style={{ marginTop: '6px', color: '#ff4444', fontSize: '1rem', lineHeight: '1.3', wordBreak: 'break-all' }}>
-            {'♥ '.repeat(Math.min(state.heartbeat, 80))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+            <span>BYOK:</span><span style={{ color: settings.apiKey ? '#00ff88' : '#666' }}>{settings.apiKey ? settings.model || 'configured' : 'default z-ai'}</span>
+          </div>
+          <div style={{ marginTop: '6px', color: '#ff4444', fontSize: '0.85rem', lineHeight: '1.2', wordBreak: 'break-all' }}>
+            {'♥ '.repeat(Math.min(state.heartbeat, 60))}
           </div>
         </>
       )}
-    </div>
-  )
-
-  const filesContent = (
-    <div style={{ padding: '12px', fontSize: '0.75rem', fontFamily: 'monospace', color: '#aaa', height: '100%', overflowY: 'auto' }}>
-      <div style={{ marginBottom: '8px', color: '#00ff88', fontWeight: 'bold', borderBottom: '1px solid #2a2a3a', paddingBottom: '4px' }}>/home/z/my-project</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-        {files.length > 0 ? files.map((f) => (
-          <div key={f} onClick={() => sendCmd(`ls -la ${f.startsWith('/') ? f : '/home/z/my-project/' + f}`)} style={{ padding: '3px 6px', background: '#0a0a14', borderRadius: '3px', cursor: 'pointer', border: '1px solid transparent' }}
-            onMouseOver={(e) => { e.currentTarget.style.border = '1px solid #00ff88'; e.currentTarget.style.background = '#1a2a1a' }}
-            onMouseOut={(e) => { e.currentTarget.style.border = '1px solid transparent'; e.currentTarget.style.background = '#0a0a14' }}>
-            <span style={{ color: '#ffaa00' }}>📁</span> <span style={{ color: '#ccc' }}>{f}</span>
-          </div>
-        )) : <div style={{ color: '#666' }}>Loading...</div>}
-      </div>
     </div>
   )
 
@@ -420,9 +442,7 @@ export default function Home() {
         <span style={{ color: '#888' }}>|</span>
         <span style={{ color: '#aaa' }}>the AI&apos;s computer</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '1rem', alignItems: 'center' }}>
-          {state && (
-            <span style={{ color: '#ff4444', fontSize: '0.82rem' }}>♥ #{state.heartbeat} · {state.elapsed.toFixed(0)}s</span>
-          )}
+          {state && <span style={{ color: '#ff4444', fontSize: '0.82rem' }}>♥ #{state.heartbeat} · {state.elapsed.toFixed(0)}s</span>}
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', padding: '2px 8px', background: connected ? '#0a2a1a' : '#2a0a0a', border: `1px solid ${connected ? '#00ff88' : '#ff4444'}`, borderRadius: '3px', fontSize: '0.68rem' }}>
             <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: connected ? '#00ff88' : '#ff4444', animation: 'pulse 1.5s infinite' }} />
             {connected ? 'ONLINE' : 'OFFLINE'}
@@ -431,24 +451,24 @@ export default function Home() {
       </div>
 
       <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
-        <div style={{ position: 'absolute', left: '8px', top: '8px', display: 'flex', flexDirection: 'column', gap: '12px', opacity: 0.45 }}>
+        <div style={{ position: 'absolute', left: '8px', top: '8px', display: 'flex', flexDirection: 'column', gap: '10px', opacity: 0.4 }}>
           {[
-            { label: 'Summon Z', win: 'chat', icon: '◈' },
+            { label: 'AI Chat', win: 'chat', icon: '◈' },
             { label: 'Terminal', win: 'terminal', icon: '⌨' },
-            { label: 'Monitor', win: 'monitor', icon: '📊' },
             { label: 'Files', win: 'files', icon: '📁' },
+            { label: 'Monitor', win: 'monitor', icon: '📊' },
           ].map((icon) => (
-            <div key={icon.label} onClick={() => focusWindow(icon.win)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px', cursor: 'pointer', padding: '8px', borderRadius: '4px', width: '60px' }}>
-              <div style={{ fontSize: '1.6rem', color: icon.win === 'chat' ? '#00ff88' : '#888' }}>{icon.icon}</div>
-              <div style={{ fontSize: '0.65rem', color: '#888' }}>{icon.label}</div>
+            <div key={icon.label} onClick={() => focusWindow(icon.win)} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', cursor: 'pointer', padding: '6px', borderRadius: '4px', width: '54px' }}>
+              <div style={{ fontSize: '1.4rem', color: icon.win === 'chat' ? '#00ff88' : '#888' }}>{icon.icon}</div>
+              <div style={{ fontSize: '0.6rem', color: '#888' }}>{icon.label}</div>
             </div>
           ))}
         </div>
 
         {renderWindow(windows.find(w => w.id === 'chat')!, chatContent)}
         {renderWindow(windows.find(w => w.id === 'terminal')!, terminalContent)}
-        {renderWindow(windows.find(w => w.id === 'monitor')!, monitorContent)}
         {renderWindow(windows.find(w => w.id === 'files')!, filesContent)}
+        {renderWindow(windows.find(w => w.id === 'monitor')!, monitorContent)}
       </div>
 
       <div style={{ background: '#0a0a14', borderTop: '1px solid #1f1f2e', padding: '6px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.72rem' }}>
@@ -468,12 +488,7 @@ export default function Home() {
         </div>
       </div>
 
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.4; }
-        }
-      `}</style>
+      <style>{`@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }`}</style>
     </div>
   )
 }
