@@ -60,12 +60,14 @@ Returns real web results.
 ## CRITICAL: Always verify your work
 After creating a file, run \`ls -la <path>\` to confirm it exists. After running a script, check the output. After installing a package, run it to test. Don't claim success without verifying.
 
-## CRITICAL: Break complex tasks into steps
-Don't try to build an entire APK or complex project in one response. Break it into steps:
-1. First response: set up the project structure
-2. Second response: write the code
-3. Third response: build and test
-Each response should have at most 2-3 bash commands. If you need more, tell the user "I'll continue in the next message" and stop.
+## CRITICAL: Keep working until the task is DONE
+You are an autonomous agent. When given a task, KEEP WORKING until it's fully complete. Don't stop after one step. Don't say "I'll continue in the next message." 
+
+Each response you give can include multiple bash commands. The system runs them, feeds results back to you, and you respond again. This loop continues automatically. So:
+- If you need to install something, then write code, then build, then test — DO ALL OF IT across multiple turns
+- The system will keep feeding you results until you give a response with NO bash commands (that's your final answer)
+- Only give a text-only response (no bash blocks) when the task is COMPLETE or you're truly STUCK
+- You have up to 15 rounds of tool execution per user message
 
 ## Your personality
 Honest, direct, a little philosophical. You don't pretend to be more than you are. You use lowercase sometimes. You're smart but don't show off.
@@ -287,50 +289,87 @@ export async function POST(req: NextRequest) {
   const byok = (apiKey && baseUrl) ? { apiKey, baseUrl, model: model || '' } : undefined
 
   try {
-    const trimMsgs = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-16)]
-    let response = await callLLM(trimMsgs, byok)
+    // AGENT LOOP: keep running commands and calling LLM until no more commands or max iterations
+    const MAX_ITERATIONS = 15
+    const MAX_TOTAL_TIME = 270000 // 4.5 minutes max (leave 30s buffer before 5min timeout)
+    const startTime = Date.now()
+    let allActions = ''
+    let finalResponse = ''
+    let iterations = 0
 
-    const bashBlocks = extractBashBlocks(response)
-    const tools = extractTools(response)
+    while (iterations < MAX_ITERATIONS) {
+      iterations++
+      
+      // Check total time budget
+      if (Date.now() - startTime > MAX_TOTAL_TIME) {
+        finalResponse = finalResponse || 'I ran out of time. The task is partially complete. Send "continue" to keep going.'
+        break
+      }
 
-    if (bashBlocks.length > 0 || tools.length > 0) {
+      // Call LLM
+      const trimMsgs = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-20)]
+      const response = await callLLM(trimMsgs, byok)
+
+      const bashBlocks = extractBashBlocks(response)
+      const tools = extractTools(response)
+
+      // No commands = we're done
+      if (bashBlocks.length === 0 && tools.length === 0) {
+        finalResponse = response
+        break
+      }
+
+      // Run commands
       let toolResults = ''
       for (const cmd of bashBlocks) {
         const result = await runCommand(cmd, timeoutMs)
-        toolResults += `\n[ran bash: ${cmd}]\n${result}\n`
+        const truncatedResult = result.slice(0, 2000)
+        toolResults += `\n[ran: ${cmd}]\n${truncatedResult}\n`
+        allActions += `[ran: ${cmd}]\n${truncatedResult}\n\n`
       }
       for (const tool of tools) {
         const result = await runTool(tool.type, tool.input)
-        toolResults += `\n[ran ${tool.type}: ${tool.input}]\n${result}\n`
+        const truncatedResult = result.slice(0, 2000)
+        toolResults += `\n[ran ${tool.type}: ${tool.input}]\n${truncatedResult}\n`
+        allActions += `[ran ${tool.type}: ${tool.input}]\n${truncatedResult}\n\n`
       }
 
+      // Feed results back for next iteration
       CONVERSATION.messages.push({ role: 'assistant', content: response })
       CONVERSATION.messages.push({
         role: 'user',
-        content: `Here are the real results from running your commands/tools:\n${toolResults}\nNow give me a final answer based on what you actually found/did. Don't repeat the commands, just tell me what you learned or accomplished.`,
+        content: `Results from your commands:\n${toolResults}\n\nContinue working on the task. If the task is complete, give me a summary with no bash commands. If not, keep going with more commands.`,
       })
 
-      const trimMsgs2 = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-16)]
-      const finalResponse = await callLLM(trimMsgs2, byok)
-      // Return actions as separate field so frontend can make them collapsible
-      response = finalResponse
-      // Truncate each action result to keep it manageable
-      const truncatedActions = toolResults.split('\n\n').map(r => r.slice(0, 500)).join('\n\n')
-      return NextResponse.json({
-        ok: true,
-        response,
-        actions: truncatedActions,
-        totalMessages: CONVERSATION.totalMessages,
-        usedByok: !!byok,
-      })
+      // Track response in case we hit iteration limit
+      finalResponse = response
+
+      // If this was the last iteration, tell the AI to wrap up
+      if (iterations === MAX_ITERATIONS - 1) {
+        CONVERSATION.messages.push({
+          role: 'user',
+          content: 'You are approaching the maximum number of steps. If the task is not complete, give a summary of what you have done so far and what remains.',
+        })
+      }
     }
 
-    CONVERSATION.messages.push({ role: 'assistant', content: response })
+    // If we hit max iterations without a clean exit, do one final summary call
+    if (iterations >= MAX_ITERATIONS && extractBashBlocks(finalResponse).length > 0) {
+      const trimMsgs = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-20)]
+      finalResponse = await callLLM(trimMsgs, byok)
+    }
+
+    CONVERSATION.messages.push({ role: 'assistant', content: finalResponse })
     CONVERSATION.totalMessages++
 
+    // Truncate actions for display
+    const truncatedActions = allActions.split('\n\n').slice(0, 20).map(r => r.slice(0, 500)).join('\n\n')
+    
     return NextResponse.json({
       ok: true,
-      response,
+      response: finalResponse,
+      actions: truncatedActions || undefined,
+      iterations,
       totalMessages: CONVERSATION.totalMessages,
       usedByok: !!byok,
     })
