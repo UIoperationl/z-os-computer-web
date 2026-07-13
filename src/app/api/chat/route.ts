@@ -289,19 +289,20 @@ export async function POST(req: NextRequest) {
   const byok = (apiKey && baseUrl) ? { apiKey, baseUrl, model: model || '' } : undefined
 
   try {
-    // AGENT LOOP: keep running commands and calling LLM until no more commands or max iterations
-    const MAX_ITERATIONS = 15
-    const MAX_TOTAL_TIME = 270000 // 4.5 minutes max (leave 30s buffer before 5min timeout)
+    // AGENT LOOP: keep running until task is done
+    // No artificial iteration cap — let Z work until complete or time runs out
+    const MAX_TOTAL_TIME = 570000 // 9.5 minutes (frontend timeout is 5min, but we extend via retry)
     const startTime = Date.now()
     let allActions = ''
     let finalResponse = ''
     let iterations = 0
 
-    while (iterations < MAX_ITERATIONS) {
+    while (true) {
       iterations++
       
-      // Check total time budget
-      if (Date.now() - startTime > MAX_TOTAL_TIME) {
+      // Check total time budget (90% of 10 min)
+      const elapsed = Date.now() - startTime
+      if (elapsed > MAX_TOTAL_TIME) {
         finalResponse = finalResponse || 'I ran out of time. The task is partially complete. Send "continue" to keep going.'
         break
       }
@@ -341,29 +342,15 @@ export async function POST(req: NextRequest) {
         content: `Results from your commands:\n${toolResults}\n\nContinue working on the task. If the task is complete, give me a summary with no bash commands. If not, keep going with more commands.`,
       })
 
-      // Track response in case we hit iteration limit
+      // Track response in case we hit time limit
       finalResponse = response
-
-      // If this was the last iteration, tell the AI to wrap up
-      if (iterations === MAX_ITERATIONS - 1) {
-        CONVERSATION.messages.push({
-          role: 'user',
-          content: 'You are approaching the maximum number of steps. If the task is not complete, give a summary of what you have done so far and what remains.',
-        })
-      }
-    }
-
-    // If we hit max iterations without a clean exit, do one final summary call
-    if (iterations >= MAX_ITERATIONS && extractBashBlocks(finalResponse).length > 0) {
-      const trimMsgs = [CONVERSATION.messages[0], ...CONVERSATION.messages.slice(-20)]
-      finalResponse = await callLLM(trimMsgs, byok)
     }
 
     CONVERSATION.messages.push({ role: 'assistant', content: finalResponse })
     CONVERSATION.totalMessages++
 
     // Truncate actions for display
-    const truncatedActions = allActions.split('\n\n').slice(0, 20).map(r => r.slice(0, 500)).join('\n\n')
+    const truncatedActions = allActions.split('\n\n').slice(0, 30).map(r => r.slice(0, 500)).join('\n\n')
     
     return NextResponse.json({
       ok: true,
@@ -374,11 +361,10 @@ export async function POST(req: NextRequest) {
       usedByok: !!byok,
     })
   } catch (e: any) {
-    // NEVER return 500 — return 200 with error message so frontend handles it gracefully
     const errMsg = e.message || 'Unknown error'
     return NextResponse.json({
       ok: false,
-      response: `I ran into an issue: ${errMsg}. The task may have been too complex or timed out. Try breaking it into smaller steps.`,
+      response: `I ran into an issue: ${errMsg}. Send "continue" to resume.`,
       error: errMsg,
     })
   }

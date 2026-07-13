@@ -205,7 +205,7 @@ export default function Home() {
     for (let attempt = 0; attempt < maxSilentRetries; attempt++) {
       try {
         const controller = new AbortController()
-        const timeoutId = setTimeout(() => controller.abort(), 300000)
+        const timeoutId = setTimeout(() => controller.abort(), 600000) // 10 min timeout
         
         const r = await fetch('/api/chat', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
