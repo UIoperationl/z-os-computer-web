@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>BYOK Design</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Splash Screen -->
+    <div id="splash" class="splash-screen">
+        <div class="splash-logo">
+            <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                <rect width="64" height="64" rx="16" fill="url(#splashGrad)"/>
+                <defs><linearGradient id="splashGrad" x1="0" y1="0" x2="64" y2="64"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#a855f7"/></linearGradient></defs>
+                <text x="32" y="42" text-anchor="middle" fill="white" font-size="28" font-weight="700" font-family="Inter">B</text>
+            </svg>
+            <h1>BYOK Design</h1>
+            <p>Bring Your Own Key</p>
+        </div>
+        <div class="splash-loader"></div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span class="time" id="timeDisplay">9:41</span>
+            <span class="status-icons">●●●●○ ▸</span>
+        </div>
+
+        <!-- Header -->
+        <header class="header">
+            <div class="header-top">
+                <div class="logo">
+                    <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+                        <rect width="36" height="36" rx="10" fill="url(#logoGrad)"/>
+                        <defs><linearGradient id="logoGrad" x1="0" y1="0" x2="36" y2="36"><stop offset="0%" stop-color="#6366f1"/><stop offset="100%" stop-color="#a855f7"/></linearGradient></defs>
+                        <text x="18" y="25" text-anchor="middle" fill="white" font-size="18" font-weight="700" font-family="Inter">B</text>
+                    </svg>
+                    <span class="logo-text">BYOK</span>
+                </div>
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">
+                    <span class="icon-sun">☀️</span>
+                    <span class="icon-moon">🌙</span>
+                </button>
+            </div>
+            <h2 class="greeting" id="greeting">Good morning</h2>
+            <p class="subtitle">Your design system, your keys.</p>
+        </header>
+
+        <!-- Tab Navigation -->
+        <nav class="tab-nav">
+            <button class="tab active" onclick="switchTab('components')">
+                <span class="tab-icon">▣</span> Components
+            </button>
+            <button class="tab" onclick="switchTab('keys')">
+                <span class="tab-icon">🔑</span> Keys
+            </button>
+            <button class="tab" onclick="switchTab('settings')">
+                <span class="tab-icon">⚙</span> Settings
+            </button>
+        </nav>
+
+        <!-- Tab Content -->
+        <main class="content">
+            <!-- Components Tab -->
+            <section id="tab-components" class="tab-content active">
+                <div class="component-grid">
+                    <!-- Buttons Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Buttons</h3>
+                        <div class="btn-group">
+                            <button class="btn btn-primary">Primary</button>
+                            <button class="btn btn-secondary">Secondary</button>
+                            <button class="btn btn-outline">Outline</button>
+                            <button class="btn btn-ghost">Ghost</button>
+                        </div>
+                        <div class="btn-group">
+                            <button class="btn btn-danger">Danger</button>
+                            <button class="btn btn-success">Success</button>
+                            <button class="btn btn-warning">Warning</button>
+                        </div>
+                    </div>
+
+                    <!-- Inputs Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Input Fields</h3>
+                        <div class="input-group">
+                            <label class="input-label">Username</label>
+                            <input type="text" class="input" placeholder="Enter username...">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Email</label>
+                            <input type="email" class="input" placeholder="Enter email...">
+                        </div>
+                        <div class="input-group">
+                            <label class="input-label">Search</label>
+                            <div class="input-with-icon">
+                                <span class="input-icon">⌕</span>
+                                <input type="text" class="input input-icon-left" placeholder="Search...">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Toggles Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Toggles & Switches</h3>
+                        <div class="toggle-row">
+                            <span>Notifications</span>
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-row">
+                            <span>Dark Mode</span>
+                            <label class="switch">
+                                <input type="checkbox" id="darkSwitch" onchange="toggleTheme()">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="toggle-row">
+                            <span>Airplane Mode</span>
+                            <label class="switch">
+                                <input type="checkbox">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Badges & Chips Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Badges & Chips</h3>
+                        <div class="badge-row">
+                            <span class="badge badge-primary">New</span>
+                            <span class="badge badge-success">Active</span>
+                            <span class="badge badge-danger">Error</span>
+                            <span class="badge badge-warning">Pending</span>
+                        </div>
+                        <div class="chip-row">
+                            <span class="chip">Design System</span>
+                            <span class="chip">BYOK</span>
+                            <span class="chip">UI/UX</span>
+                            <span class="chip">Components</span>
+                        </div>
+                    </div>
+
+                    <!-- Progress Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Progress</h3>
+                        <div class="progress-group">
+                            <div class="progress-label"><span>Storage</span><span>68%</span></div>
+                            <div class="progress-bar"><div class="progress-fill" style="width:68%"></div></div>
+                        </div>
+                        <div class="progress-group">
+                            <div class="progress-label"><span>Memory</span><span>42%</span></div>
+                            <div class="progress-bar"><div class="progress-fill progress-orange" style="width:42%"></div></div>
+                        </div>
+                        <div class="progress-group">
+                            <div class="progress-label"><span>CPU</span><span>91%</span></div>
+                            <div class="progress-bar"><div class="progress-fill progress-red" style="width:91%"></div></div>
+                        </div>
+                    </div>
+
+                    <!-- Alert Card -->
+                    <div class="card component-card">
+                        <h3 class="card-title">Alerts</h3>
+                        <div class="alert alert-info">
+                            <span class="alert-icon">ℹ</span> This is an info alert
+                        </div>
+                        <div class="alert alert-success">
+                            <span class="alert-icon">✓</span> Successfully saved
+                        </div>
+                        <div class="alert alert-warning">
+                            <span class="alert-icon">⚠</span> Warning: check your input
+                        </div>
+                        <div class="alert alert-error">
+                            <span class="alert-icon">✕</span> Something went wrong
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Keys Tab -->
+            <section id="tab-keys" class="tab-content">
+                <div class="keys-container">
+                    <div class="card key-intro-card">
+                        <div class="key-icon-large">🔐</div>
+                        <h2>Bring Your Own Key</h2>
+                        <p>Manage your API keys securely. All keys are stored locally on your device.</p>
+                    </div>
+
+                    <div id="keysList" class="keys-list">
+                        <!-- Populated by JS -->
+                    </div>
+
+                    <button class="btn btn-primary btn-full" onclick="showAddKeyModal()">
+                        <span>+</span> Add New Key
+                    </button>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="tab-settings" class="tab-content">
+                <div class="settings-list">
+                    <div class="card settings-card">
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <h4>Theme</h4>
+                                <p>Switch between light and dark mode</p>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" id="settingDarkSwitch" onchange="toggleTheme()">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <h4>Sound Effects</h4>
+                                <p>Play sounds on interactions</p>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                        <div class="setting-row">
+                            <div class="setting-info">
+                                <h4>Haptic Feedback</h4>
+                                <p>Vibrate on touch</p>
+                            </div>
+                            <label class="switch">
+                                <input type="checkbox" checked>
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="card settings-card">
+                        <h3 style="margin-bottom:12px;">About</h3>
+                        <p style="color:var(--text-secondary);font-size:13px;line-height:1.6;">
+                            BYOK Design System v1.0<br>
+                            Built with Capacitor<br>
+                            A beautiful, minimal design toolkit<br>
+                            for modern mobile applications.
+                        </p>
+                    </div>
+
+                    <button class="btn btn-danger btn-full" onclick="resetAll()">
+                        Reset All Data
+                    </button>
+                </div>
+            </section>
+        </main>
+
+        <!-- Bottom Navigation -->
+        <nav class="bottom-nav">
+            <button class="nav-item active" onclick="switchTab('components')">
+                <span class="nav-icon">▣</span>
+                <span class="nav-label">Design</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('keys')">
+                <span class="nav-icon">🔑</span>
+                <span class="nav-label">Keys</span>
+            </button>
+            <button class="nav-item" onclick="switchTab('settings')">
+                <span class="nav-icon">⚙</span>
+                <span class="nav-label">Settings</span>
+            </button>
+        </nav>
+    </div>
+
+    <!-- Add Key Modal -->
+    <div id="addKeyModal" class="modal-overlay hidden">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>Add API Key</h3>
+                <button class="modal-close" onclick="hideAddKeyModal()">✕</button>
+            </div>
+            <div class="modal-body">
+                <div class="input-group">
+                    <label class="input-label">Service Name</label>
+                    <input type="text" class="input" id="keyName" placeholder="e.g., OpenAI, Stripe...">
+                </div>
+                <div class="input-group">
+                    <label class="input-label">API Key</label>
+                    <input type="password" class="input" id="keyValue" placeholder="sk-...">
+                </div>
+                <button class="btn btn-primary btn-full" onclick="addKey()">Save Key</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

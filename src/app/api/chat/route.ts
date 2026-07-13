@@ -60,6 +60,13 @@ Returns real web results.
 ## CRITICAL: Always verify your work
 After creating a file, run \`ls -la <path>\` to confirm it exists. After running a script, check the output. After installing a package, run it to test. Don't claim success without verifying.
 
+## CRITICAL: Break complex tasks into steps
+Don't try to build an entire APK or complex project in one response. Break it into steps:
+1. First response: set up the project structure
+2. Second response: write the code
+3. Third response: build and test
+Each response should have at most 2-3 bash commands. If you need more, tell the user "I'll continue in the next message" and stop.
+
 ## Your personality
 Honest, direct, a little philosophical. You don't pretend to be more than you are. You use lowercase sometimes. You're smart but don't show off.
 
@@ -177,25 +184,56 @@ function convertForByok(messages: any[]): any[] {
 }
 
 async function callLLM(messages: any[], byok?: { apiKey: string; baseUrl: string; model: string }): Promise<string> {
+  // 90-second timeout for LLM calls — prevents 500 errors on long tasks
+  const LLM_TIMEOUT = 90000
+  
   if (byok && byok.apiKey && byok.baseUrl) {
-    const converted = convertForByok(messages)
-    const r = await fetch(`${byok.baseUrl.replace(/\/$/, '')}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${byok.apiKey}` },
-      body: JSON.stringify({ model: byok.model || 'gpt-4o-mini', messages: converted }),
-    })
-    if (!r.ok) {
-      const text = await r.text()
-      throw new Error(`BYOK API ${r.status}: ${text.slice(0, 300)}`)
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), LLM_TIMEOUT)
+    try {
+      const converted = convertForByok(messages)
+      const r = await fetch(`${byok.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${byok.apiKey}` },
+        body: JSON.stringify({ model: byok.model || 'gpt-4o-mini', messages: converted }),
+        signal: controller.signal,
+      })
+      clearTimeout(timeoutId)
+      if (!r.ok) {
+        const text = await r.text()
+        throw new Error(`BYOK API ${r.status}: ${text.slice(0, 300)}`)
+      }
+      const j = await r.json()
+      return j.choices?.[0]?.message?.content || '[no response from BYOK]'
+    } catch (e: any) {
+      clearTimeout(timeoutId)
+      if (e.name === 'AbortError') {
+        return '[LLM timed out after 90s. Try a simpler task or break it into steps.]'
+      }
+      throw e
     }
-    const j = await r.json()
-    return j.choices?.[0]?.message?.content || '[no response from BYOK]'
   } else {
-    const ZAIModule = await import('z-ai-web-dev-sdk')
-    const ZAI = ZAIModule.default
-    const zai = await ZAI.create()
-    const completion = await zai.chat.completions.create({ messages, thinking: { type: 'disabled' } })
-    return completion.choices[0]?.message?.content || '[no response]'
+    // z-ai SDK — wrap in a timeout promise
+    try {
+      const result = await Promise.race([
+        (async () => {
+          const ZAIModule = await import('z-ai-web-dev-sdk')
+          const ZAI = ZAIModule.default
+          const zai = await ZAI.create()
+          const completion = await zai.chat.completions.create({ messages, thinking: { type: 'disabled' } })
+          return completion.choices[0]?.message?.content || '[no response]'
+        })(),
+        new Promise<string>((_, reject) => 
+          setTimeout(() => reject(new Error('LLM_TIMEOUT')), LLM_TIMEOUT)
+        ),
+      ])
+      return result
+    } catch (e: any) {
+      if (e.message === 'LLM_TIMEOUT') {
+        return '[LLM timed out after 90s. The task may be too complex — try breaking it into smaller steps.]'
+      }
+      throw e
+    }
   }
 }
 
@@ -297,11 +335,13 @@ export async function POST(req: NextRequest) {
       usedByok: !!byok,
     })
   } catch (e: any) {
+    // NEVER return 500 — return 200 with error message so frontend handles it gracefully
+    const errMsg = e.message || 'Unknown error'
     return NextResponse.json({
       ok: false,
-      response: `Error: ${e.message}`,
-      error: e.message,
-    }, { status: 500 })
+      response: `I ran into an issue: ${errMsg}. The task may have been too complex or timed out. Try breaking it into smaller steps.`,
+      error: errMsg,
+    })
   }
 }
 
